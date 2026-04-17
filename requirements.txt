@@ -1,0 +1,26 @@
+# Silent Input Assistant — Python Requirements
+# Install with: pip install -r requirements.txt
+
+# Core
+numpy==1.26.4
+scikit-learn==1.4.2
+
+# Deep Learning
+tensorflow==2.15.0
+
+# Computer Vision
+opencv-python==4.9.0.80
+mediapipe==0.10.11
+
+# Audio
+librosa==0.10.2
+sounddevice==0.4.6
+soundfile==0.12.1
+
+# Web
+flask==3.0.3
+flask-cors==4.0.1
+
+# Utilities
+tqdm==4.66.4
+matplotlib==3.8.4

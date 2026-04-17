@@ -1,0 +1,12 @@
+{
+  "name": "silent-input-assistant",
+  "version": "1.0.0",
+  "description": "AI-Based Silent Input Assistant — CNN-RNN Lip & Whisper Recognition (Simulation Demo)",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

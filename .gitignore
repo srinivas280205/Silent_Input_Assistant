@@ -1,0 +1,7 @@
+node_modules/
+models/*.h5
+data/videos/**/*.mp4
+data/audio/**/*.wav
+*.env
+.DS_Store
+Thumbs.db
