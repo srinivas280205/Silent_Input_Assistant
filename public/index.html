@@ -1,668 +1,806 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Silent Input Assistant | AI Demo</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Silent Input Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
-    body { font-family: 'Inter', sans-serif; }
-    .mono { font-family: 'JetBrains Mono', monospace; }
+    * { box-sizing: border-box; }
+    body { font-family:'Inter',sans-serif; background:#060910; }
+    .mono { font-family:'JetBrains Mono',monospace; }
 
-    @keyframes pulse-ring {
-      0%   { transform: scale(1);   opacity: 0.8; }
-      100% { transform: scale(2.2); opacity: 0;   }
-    }
-    @keyframes wave-bar {
-      0%, 100% { height: 6px;  }
-      50%       { height: 28px; }
-    }
-    @keyframes slide-up {
-      from { opacity: 0; transform: translateY(12px); }
-      to   { opacity: 1; transform: translateY(0);    }
-    }
-    @keyframes glow-pulse {
-      0%, 100% { box-shadow: 0 0 8px rgba(74,222,128,0.3);  }
-      50%       { box-shadow: 0 0 22px rgba(74,222,128,0.7); }
-    }
-    @keyframes dash-flow {
-      to { stroke-dashoffset: -20; }
-    }
+    /* ── Animations ─────────────────────────────────────────────────── */
+    @keyframes slide-up   { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes pulse-ring { 0%{transform:scale(1);opacity:.9} 100%{transform:scale(2.4);opacity:0} }
+    @keyframes glow-green { 0%,100%{box-shadow:0 0 10px rgba(74,222,128,.25)} 50%{box-shadow:0 0 28px rgba(74,222,128,.6)} }
+    @keyframes scan-line  { 0%{top:0} 100%{top:100%} }
+    @keyframes blink-rec  { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes dash-run   { to{stroke-dashoffset:-18} }
+    @keyframes fadeIn     { from{opacity:0} to{opacity:1} }
 
+    .slide-up   { animation:slide-up .4s ease forwards }
+    .glow-green { animation:glow-green 2s ease-in-out infinite }
     .ring-anim::after {
-      content: '';
-      position: absolute;
-      inset: -6px;
-      border-radius: 50%;
-      border: 3px solid #ef4444;
-      animation: pulse-ring 1.2s ease-out infinite;
+      content:''; position:absolute; inset:-8px; border-radius:50%;
+      border:3px solid #ef4444; animation:pulse-ring 1.2s ease-out infinite;
     }
-    .wave-bar { animation: wave-bar 0.7s ease-in-out infinite; }
-    .wave-bar:nth-child(2) { animation-delay: 0.1s; }
-    .wave-bar:nth-child(3) { animation-delay: 0.2s; }
-    .wave-bar:nth-child(4) { animation-delay: 0.3s; }
-    .wave-bar:nth-child(5) { animation-delay: 0.15s; }
 
-    .slide-up   { animation: slide-up 0.4s ease forwards; }
-    .glow-green { animation: glow-pulse 2s ease-in-out infinite; }
+    /* pipeline step states */
+    .step-idle   { border-color:#1f2937; background:transparent }
+    .step-active { border-color:#3b82f6; background:rgba(59,130,246,.07);
+                   box-shadow:0 0 12px rgba(59,130,246,.2) }
+    .step-done   { border-color:#10b981; background:rgba(16,185,129,.06) }
 
-    .stage-idle   { border-color: #374151; background: transparent; }
-    .stage-active { border-color: #3b82f6; background: rgba(59,130,246,0.08);
-                    box-shadow: 0 0 10px rgba(59,130,246,0.25); }
-    .stage-done   { border-color: #10b981; background: rgba(16,185,129,0.06); }
+    /* pipeline node lit states */
+    .node { transition:all .3s ease }
+    .lit-blue   { border-color:#3b82f6!important; background:rgba(59,130,246,.18)!important;
+                  box-shadow:0 0 16px rgba(59,130,246,.45) }
+    .lit-purple { border-color:#a855f7!important; background:rgba(168,85,247,.18)!important;
+                  box-shadow:0 0 16px rgba(168,85,247,.45) }
+    .lit-green  { border-color:#10b981!important; background:rgba(16,185,129,.18)!important;
+                  box-shadow:0 0 16px rgba(16,185,129,.45) }
 
-    .conf-bar { transition: width 0.9s cubic-bezier(0.4, 0, 0.2, 1); }
+    /* flow lines */
+    .flow-line { stroke-dasharray:6 4; animation:dash-run .55s linear infinite; opacity:.35 }
+    .flow-line.active { opacity:1; stroke:#3b82f6 }
 
-    .pipe-node { transition: all 0.35s ease; }
-    .pipe-node.lit-blue   { border-color:#3b82f6; background:rgba(59,130,246,0.18);
-                            box-shadow:0 0 14px rgba(59,130,246,0.4); }
-    .pipe-node.lit-purple { border-color:#a855f7; background:rgba(168,85,247,0.18);
-                            box-shadow:0 0 14px rgba(168,85,247,0.4); }
-    .pipe-node.lit-green  { border-color:#10b981; background:rgba(16,185,129,0.18);
-                            box-shadow:0 0 14px rgba(16,185,129,0.4); }
+    /* recording dot */
+    .rec-dot { animation:blink-rec .8s ease-in-out infinite }
 
-    .flow-line { stroke-dasharray: 6 4; animation: dash-flow 0.6s linear infinite; }
-    .flow-line.active { stroke: #3b82f6; }
+    /* scan line on camera */
+    #scan-line {
+      position:absolute; left:0; right:0; height:2px;
+      background:linear-gradient(90deg,transparent,rgba(59,130,246,.6),transparent);
+      animation:scan-line 2.5s linear infinite; pointer-events:none;
+    }
 
-    .history-row { animation: slide-up 0.3s ease; }
+    /* conf bar */
+    .conf-bar { transition:width .85s cubic-bezier(.4,0,.2,1) }
 
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: #111827; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+    /* scrollbar */
+    ::-webkit-scrollbar{width:3px}
+    ::-webkit-scrollbar-track{background:#0d1117}
+    ::-webkit-scrollbar-thumb{background:#1f2937;border-radius:2px}
+
+    /* camera container */
+    #camera-wrap { position:relative; background:#0d1117; border-radius:12px; overflow:hidden }
+    #cam-video   { width:100%; height:100%; object-fit:cover; display:block; transform:scaleX(-1) }
+    #cam-canvas  { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none }
+    #cam-no-perm { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+                   justify-content:center; gap:8px; color:#4b5563; font-size:12px }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+<body class="text-gray-100 min-h-screen flex flex-col">
 
-<!-- ── Header ──────────────────────────────────────────────────────────── -->
-<header class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex-shrink-0">
-  <div class="max-w-7xl mx-auto flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <div class="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-        </svg>
-      </div>
-      <div>
-        <h1 class="text-sm font-bold text-white leading-tight">Computer Vision & Deep Learning-Based Silent Input Assistant</h1>
-        <p class="text-xs text-gray-500">Lip & Whisper Recognition · CNN–RNN Multimodal Fusion</p>
-      </div>
+<!-- ══════════════════════════ HEADER ══════════════════════════════════ -->
+<header class="flex-shrink-0 px-6 py-3 border-b border-gray-800/70 bg-gray-900/80 backdrop-blur flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-900/40">
+      <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+      </svg>
     </div>
-    <div class="flex items-center gap-3">
-      <span class="bg-yellow-500/15 text-yellow-400 text-xs font-bold px-3 py-1 rounded-full border border-yellow-500/30 mono">
-        ⚡ SIMULATION MODE
+    <div>
+      <h1 class="text-sm font-bold text-white tracking-tight">Silent Input Assistant</h1>
+      <p class="text-xs text-gray-500">Multimodal · Lip &amp; Whisper Recognition</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-3">
+    <!-- live indicators -->
+    <div class="flex items-center gap-4 text-xs mr-2">
+      <span class="flex items-center gap-1.5">
+        <span id="dot-cam" class="w-2 h-2 rounded-full bg-gray-600"></span>
+        <span id="lbl-cam" class="text-gray-500">Camera</span>
       </span>
-      <div class="text-right text-xs text-gray-500 leading-tight">
-        <div class="text-gray-400 font-medium">V.S.B. Engineering College, Karur</div>
-        <div>B.Tech IT · Anna University · Dec 2025</div>
-      </div>
+      <span class="flex items-center gap-1.5">
+        <span id="dot-mic" class="w-2 h-2 rounded-full bg-gray-600"></span>
+        <span id="lbl-mic" class="text-gray-500">Microphone</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-green-400"></span>
+        <span class="text-gray-400">Models: <span class="text-green-400 font-semibold">Loaded</span></span>
+      </span>
     </div>
+    <span class="bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 text-xs font-bold px-3 py-1 rounded-full mono">⚡ SIMULATION</span>
   </div>
 </header>
 
-<!-- ── Status Bar ──────────────────────────────────────────────────────── -->
-<div class="bg-gray-900/60 border-b border-gray-800/60 px-6 py-2 flex-shrink-0">
-  <div class="max-w-7xl mx-auto flex items-center gap-5 text-xs flex-wrap">
-    <div class="flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-      <span class="text-gray-400">Camera: <span class="text-green-400 font-semibold">Active</span></span>
+<!-- ══════════════════════════ MAIN ════════════════════════════════════ -->
+<main class="flex-1 grid grid-cols-12 gap-4 p-4 max-w-[1400px] w-full mx-auto">
+
+  <!-- ── LEFT: Camera + Mic + Controls ───────────────────────────────── -->
+  <div class="col-span-4 flex flex-col gap-3">
+
+    <!-- Camera feed -->
+    <div id="camera-wrap" class="border border-gray-800 aspect-video">
+      <video id="cam-video" autoplay muted playsinline></video>
+      <canvas id="cam-canvas"></canvas>
+      <div id="scan-line"></div>
+      <!-- no permission fallback -->
+      <div id="cam-no-perm">
+        <svg class="w-8 h-8 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+        </svg>
+        <span>Click "Enable Camera" below</span>
+      </div>
+      <!-- corner marks -->
+      <div class="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-blue-500 rounded-tl pointer-events-none"></div>
+      <div class="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-blue-500 rounded-tr pointer-events-none"></div>
+      <div class="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-blue-500 rounded-bl pointer-events-none"></div>
+      <div class="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-blue-500 rounded-br pointer-events-none"></div>
+      <!-- FPS badge -->
+      <div class="absolute top-2 left-1/2 -translate-x-1/2 mono text-xs bg-black/60 px-2 py-0.5 rounded text-blue-400">30 FPS</div>
     </div>
-    <div class="flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-      <span class="text-gray-400">Microphone: <span class="text-green-400 font-semibold">Active</span></span>
+
+    <!-- Mic waveform -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-semibold text-gray-400 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          </svg>
+          Microphone Input
+        </span>
+        <span class="mono text-xs text-gray-500" id="db-label">– dB</span>
+      </div>
+      <canvas id="mic-canvas" class="w-full rounded-lg bg-gray-950" height="48"></canvas>
+      <div class="flex justify-between text-xs text-gray-700 mt-1 mono">
+        <span>22050 Hz</span><span>Mono</span><span>MFCC ready</span>
+      </div>
     </div>
-    <div class="flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-      <span class="text-gray-400">whisper_model.h5: <span class="text-green-400 font-semibold">Loaded</span></span>
-    </div>
-    <div class="flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-      <span class="text-gray-400">lip_model.h5: <span class="text-green-400 font-semibold">Loaded</span></span>
-    </div>
-    <div class="flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block"></span>
-      <span class="text-gray-400">MediaPipe: <span class="text-blue-400 font-semibold">Ready</span></span>
-    </div>
-    <div class="ml-auto text-gray-600">
-      Vocabulary:
-      <span class="mono text-gray-400 ml-1">yes · no · help · water · pain · stop</span>
+
+    <!-- Enable button -->
+    <button id="enable-btn" onclick="enableSensors()"
+            class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-semibold transition-all active:scale-95">
+      🎙️ Enable Camera &amp; Microphone
+    </button>
+
+    <!-- Environment sliders -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex-1">
+      <p class="text-xs font-semibold text-gray-400 mb-3">Environment Controls</p>
+
+      <div class="mb-4">
+        <div class="flex justify-between mb-1.5">
+          <label class="text-xs text-gray-500">🔊 Background Noise</label>
+          <span class="mono text-xs text-orange-400 font-bold" id="noise-val">30%</span>
+        </div>
+        <input type="range" id="noise-slider" min="0" max="100" value="30"
+               class="w-full accent-orange-500 cursor-pointer">
+        <div class="flex justify-between text-xs text-gray-700 mt-1"><span>Silent</span><span>Noisy</span></div>
+      </div>
+
+      <div class="mb-4">
+        <div class="flex justify-between mb-1.5">
+          <label class="text-xs text-gray-500">💡 Lighting Quality</label>
+          <span class="mono text-xs text-yellow-400 font-bold" id="light-val">80%</span>
+        </div>
+        <input type="range" id="light-slider" min="0" max="100" value="80"
+               class="w-full accent-yellow-500 cursor-pointer">
+        <div class="flex justify-between text-xs text-gray-700 mt-1"><span>Dark</span><span>Bright</span></div>
+      </div>
+
+      <!-- weight preview -->
+      <div class="bg-gray-800/60 rounded-lg p-3 text-xs space-y-2 border border-gray-700/40">
+        <p class="text-gray-500 font-semibold">Fusion Weights (live)</p>
+        <div>
+          <div class="flex justify-between mb-1">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>Audio CNN</span>
+            <span class="mono text-blue-400" id="aw-pct">70%</span>
+          </div>
+          <div class="bg-gray-700 rounded-full h-1.5">
+            <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" id="aw-bar" style="width:70%"></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between mb-1">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>Video LSTM</span>
+            <span class="mono text-purple-400" id="vw-pct">30%</span>
+          </div>
+          <div class="bg-gray-700 rounded-full h-1.5">
+            <div class="bg-purple-500 h-1.5 rounded-full transition-all duration-300" id="vw-bar" style="width:30%"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- ── Main ────────────────────────────────────────────────────────────── -->
-<main class="flex-1 max-w-7xl w-full mx-auto px-6 py-5">
-  <div class="grid grid-cols-12 gap-5 h-full">
+  <!-- ── MIDDLE: Pipeline + Record + History ──────────────────────────── -->
+  <div class="col-span-3 flex flex-col gap-3">
 
-    <!-- ── Left Column ───────────────────────────────────────────────── -->
-    <div class="col-span-4 flex flex-col gap-4">
+    <!-- Pipeline -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Pipeline</p>
 
-      <!-- Environment Simulator -->
-      <div class="bg-gray-900 rounded-2xl border border-gray-800 p-5">
-        <div class="flex items-center gap-2 mb-4">
-          <svg class="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2h-2"/>
-          </svg>
-          <span class="text-sm font-semibold text-gray-200">Environment Simulator</span>
+      <!-- Audio stream -->
+      <div class="flex items-center gap-1 mb-1">
+        <span class="text-xs text-blue-400/50 w-8 font-medium">AUD</span>
+        <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-mic">
+          <svg class="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
         </div>
-
-        <!-- Noise slider -->
-        <div class="mb-5">
-          <div class="flex justify-between mb-1.5">
-            <label class="text-xs text-gray-400 flex items-center gap-1">🔊 Background Noise</label>
-            <span class="text-xs mono text-orange-400 font-bold" id="noise-val">30%</span>
-          </div>
-          <input type="range" id="noise-slider" min="0" max="100" value="30"
-                 class="w-full h-1.5 rounded-full accent-orange-500 cursor-pointer bg-gray-700">
-          <div class="flex justify-between text-xs text-gray-600 mt-1"><span>Silent Room</span><span>Noisy ICU</span></div>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
+          <path class="flow-line" id="fl1" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
+        </svg>
+        <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-mfcc">
+          <span class="text-xs mono text-gray-600 font-bold">MF</span>
         </div>
-
-        <!-- Lighting slider -->
-        <div class="mb-4">
-          <div class="flex justify-between mb-1.5">
-            <label class="text-xs text-gray-400 flex items-center gap-1">💡 Lighting Quality</label>
-            <span class="text-xs mono text-yellow-400 font-bold" id="light-val">80%</span>
-          </div>
-          <input type="range" id="light-slider" min="0" max="100" value="80"
-                 class="w-full h-1.5 rounded-full accent-yellow-500 cursor-pointer bg-gray-700">
-          <div class="flex justify-between text-xs text-gray-600 mt-1"><span>Dark Room</span><span>Well Lit</span></div>
-        </div>
-
-        <!-- Dynamic weight preview -->
-        <div class="bg-gray-800/60 rounded-xl p-3 text-xs space-y-2 border border-gray-700/50">
-          <div class="text-gray-400 font-semibold mb-1">Dynamic Fusion Weights</div>
-          <div>
-            <div class="flex justify-between mb-1">
-              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>Audio Model (CNN)</span>
-              <span class="mono text-blue-400" id="audio-w-pct">70%</span>
-            </div>
-            <div class="w-full bg-gray-700 rounded-full h-2">
-              <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" id="audio-w-bar" style="width:70%"></div>
-            </div>
-          </div>
-          <div>
-            <div class="flex justify-between mb-1">
-              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>Video Model (CNN+LSTM)</span>
-              <span class="mono text-purple-400" id="video-w-pct">30%</span>
-            </div>
-            <div class="w-full bg-gray-700 rounded-full h-2">
-              <div class="bg-purple-500 h-2 rounded-full transition-all duration-300" id="video-w-bar" style="width:30%"></div>
-            </div>
-          </div>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
+          <path class="flow-line" id="fl2" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
+        </svg>
+        <div class="node w-11 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cnna">
+          <span class="text-xs mono text-gray-600 font-bold">CNN</span>
         </div>
       </div>
 
-      <!-- Record Button -->
-      <div class="bg-gray-900 rounded-2xl border border-gray-800 p-5 flex flex-col items-center">
-        <div class="relative mb-3">
-          <button id="record-btn" onclick="startPrediction()"
-                  class="relative w-20 h-20 rounded-full bg-gradient-to-br from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-95 transition-all flex flex-col items-center justify-center shadow-xl shadow-red-950 focus:outline-none">
-            <svg class="w-7 h-7 mb-0.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-            </svg>
-            <span class="text-xs font-bold tracking-wide">RECORD</span>
-          </button>
-        </div>
-        <p class="text-xs text-gray-500 text-center mb-4" id="record-hint">
-          Click to simulate a 2-second command capture
-        </p>
+      <!-- Converge arrows + Fusion -->
+      <div class="flex items-center gap-1 my-1 pl-9">
+        <svg class="w-full h-8" viewBox="0 0 200 32">
+          <path id="fl-ca" d="M168 6 Q185 6 185 16 L200 16" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
+          <path id="fl-cb" d="M168 26 Q185 26 185 16 L200 16" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
+        </svg>
+      </div>
 
-        <!-- Audio wave visualizer (shows during recording) -->
-        <div id="wave-viz" class="hidden items-center justify-center gap-1 h-8 mb-3">
-          <div class="wave-bar w-1 bg-blue-500 rounded-full"></div>
-          <div class="wave-bar w-1 bg-blue-400 rounded-full"></div>
-          <div class="wave-bar w-1 bg-blue-500 rounded-full"></div>
-          <div class="wave-bar w-1 bg-blue-400 rounded-full"></div>
-          <div class="wave-bar w-1 bg-blue-500 rounded-full"></div>
+      <!-- Video stream -->
+      <div class="flex items-center gap-1 mt-1">
+        <span class="text-xs text-purple-400/50 w-8 font-medium">VID</span>
+        <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cam">
+          <svg class="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         </div>
-
-        <!-- Pipeline steps -->
-        <div class="w-full space-y-2" id="pipeline-steps">
-          <div class="stage-idle flex items-center gap-2.5 p-2.5 rounded-lg border text-xs transition-all duration-300" id="step-1">
-            <div class="w-5 h-5 rounded-full border-2 border-gray-600 flex items-center justify-center flex-shrink-0" id="dot-1">
-              <div class="w-2 h-2 rounded-full bg-gray-600"></div>
-            </div>
-            <span class="text-gray-500">Capture Audio + Video (2s)</span>
-          </div>
-          <div class="stage-idle flex items-center gap-2.5 p-2.5 rounded-lg border text-xs transition-all duration-300" id="step-2">
-            <div class="w-5 h-5 rounded-full border-2 border-gray-600 flex items-center justify-center flex-shrink-0" id="dot-2">
-              <div class="w-2 h-2 rounded-full bg-gray-600"></div>
-            </div>
-            <span class="text-gray-500">Lip ROI Extraction + MFCC</span>
-          </div>
-          <div class="stage-idle flex items-center gap-2.5 p-2.5 rounded-lg border text-xs transition-all duration-300" id="step-3">
-            <div class="w-5 h-5 rounded-full border-2 border-gray-600 flex items-center justify-center flex-shrink-0" id="dot-3">
-              <div class="w-2 h-2 rounded-full bg-gray-600"></div>
-            </div>
-            <span class="text-gray-500">CNN + LSTM Model Inference</span>
-          </div>
-          <div class="stage-idle flex items-center gap-2.5 p-2.5 rounded-lg border text-xs transition-all duration-300" id="step-4">
-            <div class="w-5 h-5 rounded-full border-2 border-gray-600 flex items-center justify-center flex-shrink-0" id="dot-4">
-              <div class="w-2 h-2 rounded-full bg-gray-600"></div>
-            </div>
-            <span class="text-gray-500">Dynamic Fusion → Output</span>
-          </div>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
+          <path class="flow-line" id="fl3" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
+        </svg>
+        <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-roi">
+          <span class="text-xs mono text-gray-600 font-bold">ROI</span>
+        </div>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
+          <path class="flow-line" id="fl4" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
+        </svg>
+        <div class="node w-11 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-lstm">
+          <span class="text-xs mono text-gray-600 font-bold leading-none text-center">CNN<br>LSTM</span>
         </div>
       </div>
 
-      <!-- Prediction History -->
-      <div class="bg-gray-900 rounded-2xl border border-gray-800 p-4 flex-1">
-        <div class="flex items-center justify-between mb-3">
-          <span class="text-xs font-semibold text-gray-300">Prediction History</span>
-          <button onclick="clearHistory()" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Clear</button>
+      <!-- Fusion → Output -->
+      <div class="flex items-center gap-2 mt-2 pl-9 justify-end">
+        <div class="node w-16 h-10 rounded-xl border-2 border-gray-700 flex items-center justify-center" id="pn-fusion">
+          <span class="text-xs mono text-gray-500 font-bold text-center leading-tight">FUSE</span>
         </div>
-        <div id="history-list" class="space-y-1.5 max-h-40 overflow-y-auto">
-          <p class="text-xs text-gray-600 italic text-center py-4">No predictions yet</p>
+        <svg class="w-6 h-3" viewBox="0 0 24 6">
+          <path class="flow-line" id="fl-out" d="M0 3 L24 3" stroke="#374151" stroke-width="1.5" fill="none"/>
+        </svg>
+        <div class="node w-10 h-10 rounded-xl border border-gray-700 flex items-center justify-center" id="pn-out">
+          <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
       </div>
     </div>
 
-    <!-- ── Right Column ──────────────────────────────────────────────── -->
-    <div class="col-span-8 flex flex-col gap-4">
+    <!-- Record -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center">
+      <div class="relative mb-2">
+        <button id="rec-btn" onclick="startPrediction()"
+                class="relative w-20 h-20 rounded-full bg-gradient-to-br from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-95 transition-all flex flex-col items-center justify-center shadow-xl shadow-red-950/60 focus:outline-none">
+          <svg class="w-7 h-7 mb-0.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <span class="text-xs font-black tracking-wider">REC</span>
+        </button>
+      </div>
+      <p class="text-xs text-gray-500 text-center mb-3" id="rec-hint">Press to capture command</p>
 
-      <!-- Pipeline Diagram -->
-      <div class="bg-gray-900 rounded-2xl border border-gray-800 p-5">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">System Architecture Pipeline</h3>
-
-        <!-- Audio stream row -->
-        <div class="flex items-center mb-3">
-          <span class="text-xs text-blue-400/60 w-12 text-right mr-2 font-medium">AUDIO</span>
-          <div class="pipe-node w-14 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-mic">
-            <svg class="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-            </svg>
-          </div>
-          <svg class="flex-1 h-4 mx-1" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path class="flow-line" id="fl-1" d="M0 4 L100 4" stroke="#374151" stroke-width="1.5" fill="none"/>
-          </svg>
-          <div class="pipe-node w-14 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-mfcc">
-            <span class="text-xs mono text-gray-500 font-bold">MFCC</span>
-          </div>
-          <svg class="flex-1 h-4 mx-1" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path class="flow-line" id="fl-2" d="M0 4 L100 4" stroke="#374151" stroke-width="1.5" fill="none"/>
-          </svg>
-          <div class="pipe-node w-16 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cnn-a">
-            <span class="text-xs mono text-gray-500 font-bold text-center leading-tight">CNN<br>Model A</span>
-          </div>
-          <!-- Converging lines (SVG) -->
-          <svg class="w-10 h-16 mx-1 -mt-8" viewBox="0 0 40 64">
-            <path id="fl-conv-a" d="M0 16 Q20 16 20 32 L20 32" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
-            <path id="fl-conv-b" d="M0 48 Q20 48 20 32 L20 32" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
-          </svg>
-          <div class="pipe-node w-20 h-16 rounded-xl border-2 border-gray-700 flex items-center justify-center -mt-0" id="pn-fusion" style="margin-top:-28px">
-            <span class="text-xs text-gray-500 font-bold text-center leading-tight">FUSION<br>ENGINE</span>
-          </div>
-          <svg class="w-6 h-4 mx-1" viewBox="0 0 24 8" style="margin-top:-28px">
-            <path class="flow-line" id="fl-out" d="M0 4 L24 4" stroke="#374151" stroke-width="1.5" fill="none"/>
-          </svg>
-          <div class="pipe-node w-14 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-output" style="margin-top:-28px">
-            <svg class="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          </div>
+      <!-- steps -->
+      <div class="w-full space-y-1.5">
+        <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s1">
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d1"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <span class="text-gray-600">Capture (2s)</span>
         </div>
-
-        <!-- Video stream row -->
-        <div class="flex items-center">
-          <span class="text-xs text-purple-400/60 w-12 text-right mr-2 font-medium">VIDEO</span>
-          <div class="pipe-node w-14 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cam">
-            <svg class="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-            </svg>
-          </div>
-          <svg class="flex-1 h-4 mx-1" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path class="flow-line" id="fl-3" d="M0 4 L100 4" stroke="#374151" stroke-width="1.5" fill="none"/>
-          </svg>
-          <div class="pipe-node w-14 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-roi">
-            <span class="text-xs mono text-gray-500 font-bold">ROI</span>
-          </div>
-          <svg class="flex-1 h-4 mx-1" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path class="flow-line" id="fl-4" d="M0 4 L100 4" stroke="#374151" stroke-width="1.5" fill="none"/>
-          </svg>
-          <div class="pipe-node w-16 h-10 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-lstm">
-            <span class="text-xs mono text-gray-500 font-bold text-center leading-tight">CNN+<br>LSTM B</span>
-          </div>
-          <!-- Spacer to align with fusion box above -->
-          <div style="width:calc(2.5rem + 5rem + 1.5rem + 3.5rem + 0.5rem)"></div>
+        <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s2">
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d2"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <span class="text-gray-600">ROI + MFCC</span>
         </div>
-
-        <!-- Labels row -->
-        <div class="flex items-center mt-2 text-xs text-gray-600">
-          <div class="w-14 ml-14 text-center">Sensor</div>
-          <div class="flex-1"></div>
-          <div class="w-14 text-center">Features</div>
-          <div class="flex-1"></div>
-          <div class="w-16 text-center">Model</div>
-          <div class="w-10"></div>
-          <div class="w-20 text-center">Fusion</div>
-          <div class="w-6"></div>
-          <div class="w-14 text-center">Result</div>
+        <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s3">
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d3"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <span class="text-gray-600">CNN + LSTM</span>
+        </div>
+        <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s4">
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d4"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <span class="text-gray-600">Fusion → Output</span>
         </div>
       </div>
+    </div>
 
-      <!-- Final Result Banner -->
-      <div id="result-banner" class="hidden bg-gray-900 rounded-2xl border-2 border-green-700 p-5 glow-green slide-up">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Detected Command</p>
-            <div class="flex items-baseline gap-4">
-              <span class="text-6xl font-black uppercase tracking-widest" id="banner-word" style="text-shadow: 0 0 30px rgba(74,222,128,0.5)">—</span>
-              <div>
-                <div class="text-xs text-gray-400">Confidence</div>
-                <span class="text-3xl font-bold text-green-400 mono" id="banner-conf">—</span>
-              </div>
+    <!-- History -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 flex-1">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-semibold text-gray-500">History</span>
+        <button onclick="clearHist()" class="text-xs text-gray-700 hover:text-gray-400">Clear</button>
+      </div>
+      <div id="hist" class="space-y-1 max-h-36 overflow-y-auto">
+        <p class="text-xs text-gray-700 italic text-center py-3">No predictions yet</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: Results ────────────────────────────────────────────────── -->
+  <div class="col-span-5 flex flex-col gap-3">
+
+    <!-- Vocab chips -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-gray-600">Vocabulary:</span>
+      <span id="voc-yes"   class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">yes</span>
+      <span id="voc-no"    class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">no</span>
+      <span id="voc-help"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">help</span>
+      <span id="voc-water" class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">water</span>
+      <span id="voc-pain"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">pain</span>
+      <span id="voc-stop"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">stop</span>
+    </div>
+
+    <!-- Result banner -->
+    <div id="banner" class="hidden bg-gray-900 border-2 border-green-800 rounded-2xl p-5 glow-green">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Detected Command</p>
+          <div class="flex items-baseline gap-4">
+            <span id="b-word" class="text-6xl font-black uppercase tracking-widest mono" style="text-shadow:0 0 40px rgba(74,222,128,.5)">—</span>
+            <div>
+              <div class="text-xs text-gray-500 mb-0.5">Confidence</div>
+              <span id="b-conf" class="text-3xl font-bold text-green-400 mono">—</span>
             </div>
           </div>
-          <div class="text-right space-y-2">
-            <div class="text-xs text-gray-500 uppercase tracking-wider">Model Weights</div>
-            <div class="flex items-center gap-2 text-xs justify-end">
-              <span class="text-gray-400">🎤 Audio CNN</span>
-              <span class="mono text-blue-400 font-bold" id="banner-aw">—</span>
-            </div>
-            <div class="flex items-center gap-2 text-xs justify-end">
-              <span class="text-gray-400">📷 Video LSTM</span>
-              <span class="mono text-purple-400 font-bold" id="banner-vw">—</span>
-            </div>
-            <div class="flex items-center gap-2 text-xs justify-end mt-1">
-              <span class="text-gray-500">Latency</span>
-              <span class="mono text-yellow-400" id="banner-latency">—</span>
-            </div>
+        </div>
+        <div class="text-right space-y-1.5 mt-1">
+          <p class="text-xs text-gray-600 uppercase">Weights</p>
+          <div class="text-xs flex items-center gap-2 justify-end">
+            <span class="text-gray-500">🎤 Audio</span>
+            <span class="mono text-blue-400 font-bold" id="b-aw">—</span>
+          </div>
+          <div class="text-xs flex items-center gap-2 justify-end">
+            <span class="text-gray-500">📷 Video</span>
+            <span class="mono text-purple-400 font-bold" id="b-vw">—</span>
+          </div>
+          <div class="text-xs flex items-center gap-2 justify-end mt-1">
+            <span class="text-gray-500">⏱ Latency</span>
+            <span class="mono text-yellow-400" id="b-lat">—</span>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 3-Column Model Results -->
-      <div id="model-results" class="hidden grid grid-cols-3 gap-4 slide-up">
+    <!-- 3-col model cards -->
+    <div id="cards" class="hidden grid grid-cols-3 gap-3 flex-1">
 
-        <!-- Whisper Model -->
-        <div class="bg-gray-900 rounded-2xl border border-gray-800 p-4">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-blue-950 border border-blue-800 flex items-center justify-center">
-              <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-              </svg>
-            </div>
-            <div>
-              <div class="text-xs font-bold text-white">Whisper CNN</div>
-              <div class="text-xs text-gray-500">Model A · Audio</div>
-            </div>
+      <!-- Whisper -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-7 h-7 rounded-lg bg-blue-950 border border-blue-800 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
           </div>
-          <div class="text-center p-2 bg-blue-950/40 rounded-lg border border-blue-900/30 mb-3">
-            <div class="text-2xl font-black text-blue-300 uppercase mono" id="w-word">—</div>
-            <div class="text-xs text-gray-500 mt-0.5">conf: <span class="text-blue-400 mono font-bold" id="w-conf">—</span></div>
+          <div class="leading-tight">
+            <div class="text-xs font-bold text-white">Whisper CNN</div>
+            <div class="text-xs text-gray-600">Model A</div>
           </div>
-          <div id="w-bars" class="space-y-1.5"></div>
         </div>
-
-        <!-- Lip Model -->
-        <div class="bg-gray-900 rounded-2xl border border-gray-800 p-4">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-purple-950 border border-purple-800 flex items-center justify-center">
-              <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-              </svg>
-            </div>
-            <div>
-              <div class="text-xs font-bold text-white">Lip CNN+LSTM</div>
-              <div class="text-xs text-gray-500">Model B · Video</div>
-            </div>
-          </div>
-          <div class="text-center p-2 bg-purple-950/40 rounded-lg border border-purple-900/30 mb-3">
-            <div class="text-2xl font-black text-purple-300 uppercase mono" id="l-word">—</div>
-            <div class="text-xs text-gray-500 mt-0.5">conf: <span class="text-purple-400 mono font-bold" id="l-conf">—</span></div>
-          </div>
-          <div id="l-bars" class="space-y-1.5"></div>
+        <div class="bg-blue-950/30 border border-blue-900/30 rounded-lg p-2 text-center mb-2">
+          <div class="text-lg font-black text-blue-300 mono uppercase" id="w-word">—</div>
+          <div class="text-xs text-gray-600">conf: <span class="text-blue-400 mono font-bold" id="w-conf">—</span></div>
         </div>
-
-        <!-- Fusion -->
-        <div class="bg-gray-900 rounded-2xl border-2 border-green-900 p-4">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-green-950 border border-green-800 flex items-center justify-center">
-              <svg class="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h8m-8 6h16"/>
-              </svg>
-            </div>
-            <div>
-              <div class="text-xs font-bold text-white">Fusion Engine</div>
-              <div class="text-xs text-gray-500">Dynamic Weighted</div>
-            </div>
-          </div>
-          <div class="text-center p-2 bg-green-950/40 rounded-lg border border-green-900/30 mb-3">
-            <div class="text-2xl font-black text-green-300 uppercase mono" id="f-word">—</div>
-            <div class="text-xs text-gray-500 mt-0.5">conf: <span class="text-green-400 mono font-bold" id="f-conf">—</span></div>
-          </div>
-          <div id="f-bars" class="space-y-1.5"></div>
-        </div>
+        <div id="w-bars" class="space-y-1 flex-1"></div>
       </div>
 
-    </div><!-- /right col -->
-  </div><!-- /grid -->
+      <!-- Lip -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-7 h-7 rounded-lg bg-purple-950 border border-purple-800 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          </div>
+          <div class="leading-tight">
+            <div class="text-xs font-bold text-white">Lip CNN+LSTM</div>
+            <div class="text-xs text-gray-600">Model B</div>
+          </div>
+        </div>
+        <div class="bg-purple-950/30 border border-purple-900/30 rounded-lg p-2 text-center mb-2">
+          <div class="text-lg font-black text-purple-300 mono uppercase" id="l-word">—</div>
+          <div class="text-xs text-gray-600">conf: <span class="text-purple-400 mono font-bold" id="l-conf">—</span></div>
+        </div>
+        <div id="l-bars" class="space-y-1 flex-1"></div>
+      </div>
+
+      <!-- Fusion -->
+      <div class="bg-gray-900 border-2 border-green-900 rounded-xl p-3 flex flex-col">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-7 h-7 rounded-lg bg-green-950 border border-green-800 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h8m-8 6h16"/></svg>
+          </div>
+          <div class="leading-tight">
+            <div class="text-xs font-bold text-white">Fusion</div>
+            <div class="text-xs text-gray-600">Dynamic</div>
+          </div>
+        </div>
+        <div class="bg-green-950/30 border border-green-900/30 rounded-lg p-2 text-center mb-2">
+          <div class="text-lg font-black text-green-300 mono uppercase" id="f-word">—</div>
+          <div class="text-xs text-gray-600">conf: <span class="text-green-400 mono font-bold" id="f-conf">—</span></div>
+        </div>
+        <div id="f-bars" class="space-y-1 flex-1"></div>
+      </div>
+    </div>
+
+    <!-- idle placeholder -->
+    <div id="idle-placeholder" class="flex-1 bg-gray-900 border border-gray-800 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 text-gray-700">
+      <svg class="w-12 h-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z"/></svg>
+      <p class="text-sm font-medium opacity-30">Press REC to start</p>
+    </div>
+  </div>
+
 </main>
 
-<!-- ── Footer ──────────────────────────────────────────────────────────── -->
-<footer class="border-t border-gray-800/60 px-6 py-2 text-center text-xs text-gray-700 flex-shrink-0">
-  SRINIVAS R · SIVAPRAKASH A · UDHAYAMOORTHI T · YUVESHWARAN S &nbsp;|&nbsp; Dept. of Information Technology · V.S.B. Engineering College, Karur-639111
-</footer>
-
+<!-- ══════════════════════════ SCRIPTS ═════════════════════════════════ -->
 <script>
 const VOCAB = ['yes','no','help','water','pain','stop'];
-const history = [];
+let camStream = null, audioCtx = null, analyser = null, micAnimId = null;
+let isRecording = false, camEnabled = false;
+let lipROI = { x:.3, y:.58, w:.4, h:.18 }; // normalized lip region
+let roiJitter = { x:0, y:0 };
+const histArr = [];
 
-// ── Sliders ────────────────────────────────────────────────────────────
-document.getElementById('noise-slider').addEventListener('input', e => {
-  document.getElementById('noise-val').textContent = e.target.value + '%';
-  updateWeightPreview();
-});
-document.getElementById('light-slider').addEventListener('input', e => {
-  document.getElementById('light-val').textContent = e.target.value + '%';
-  updateWeightPreview();
-});
+// ── Sensor enable ────────────────────────────────────────────────────
+async function enableSensors() {
+  const btn = document.getElementById('enable-btn');
+  btn.textContent = 'Connecting...'; btn.disabled = true;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video:{ width:640, height:480, facingMode:'user' }, audio:true });
 
-function updateWeightPreview() {
-  const n = document.getElementById('noise-slider').value / 100;
-  const l = document.getElementById('light-slider').value / 100;
-  const aw = Math.max(0.05, 1 - n);
-  const vw = Math.max(0.05, 0.3 + l * 0.7);
-  const t  = aw + vw;
-  const ap = Math.round(aw / t * 100);
-  const vp = Math.round(vw / t * 100);
-  document.getElementById('audio-w-pct').textContent = ap + '%';
-  document.getElementById('video-w-pct').textContent = vp + '%';
-  document.getElementById('audio-w-bar').style.width  = ap + '%';
-  document.getElementById('video-w-bar').style.width  = vp + '%';
-}
+    // Camera
+    const vid = document.getElementById('cam-video');
+    vid.srcObject = camStream;
+    document.getElementById('cam-no-perm').style.display = 'none';
+    camEnabled = true;
 
-// ── Pipeline node helpers ──────────────────────────────────────────────
-function litNode(id, cls) {
-  const el = document.getElementById(id);
-  el.classList.remove('lit-blue','lit-purple','lit-green');
-  if (cls) el.classList.add(cls);
-  // also light up SVG icon
-  el.querySelectorAll('svg').forEach(s => {
-    s.classList.remove('text-gray-500','text-blue-400','text-purple-400','text-green-400');
-    if (cls === 'lit-blue')   s.classList.add('text-blue-400');
-    else if (cls === 'lit-purple') s.classList.add('text-purple-400');
-    else if (cls === 'lit-green')  s.classList.add('text-green-400');
-    else s.classList.add('text-gray-500');
-  });
-  el.querySelectorAll('span').forEach(s => {
-    s.classList.remove('text-gray-500','text-blue-400','text-purple-400','text-green-400');
-    if (cls === 'lit-blue')   s.classList.add('text-blue-400');
-    else if (cls === 'lit-purple') s.classList.add('text-purple-400');
-    else if (cls === 'lit-green')  s.classList.add('text-green-400');
-    else s.classList.add('text-gray-500');
-  });
-}
+    // Canvas overlay loop
+    const canvas = document.getElementById('cam-canvas');
+    vid.onloadedmetadata = () => {
+      canvas.width  = vid.videoWidth  || 640;
+      canvas.height = vid.videoHeight || 480;
+      startOverlayLoop();
+    };
 
-function resetPipeline() {
-  ['pn-mic','pn-mfcc','pn-cnn-a','pn-cam','pn-roi','pn-lstm','pn-fusion','pn-output']
-    .forEach(id => litNode(id, null));
-}
+    // Mic
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(camStream);
+    analyser  = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+    startMicViz();
 
-// ── Step helpers ───────────────────────────────────────────────────────
-function setStep(n, state) {
-  const el  = document.getElementById(`step-${n}`);
-  const dot = document.getElementById(`dot-${n}`);
-  const lbl = el.querySelector('span');
+    // Status dots
+    document.getElementById('dot-cam').className = 'w-2 h-2 rounded-full bg-green-400';
+    document.getElementById('lbl-cam').className  = 'text-gray-400';
+    document.getElementById('lbl-cam').innerHTML  = 'Camera: <span class="text-green-400 font-semibold">Active</span>';
+    document.getElementById('dot-mic').className  = 'w-2 h-2 rounded-full bg-green-400';
+    document.getElementById('lbl-mic').className  = 'text-gray-400';
+    document.getElementById('lbl-mic').innerHTML  = 'Microphone: <span class="text-green-400 font-semibold">Active</span>';
 
-  el.classList.remove('stage-idle','stage-active','stage-done');
-
-  if (state === 'active') {
-    el.classList.add('stage-active');
-    dot.innerHTML = '<div class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>';
-    lbl.className = 'text-blue-300';
-  } else if (state === 'done') {
-    el.classList.add('stage-done');
-    dot.innerHTML = `<svg class="w-3.5 h-3.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-    </svg>`;
-    lbl.className = 'text-green-400';
-  } else {
-    el.classList.add('stage-idle');
-    dot.innerHTML = '<div class="w-2 h-2 rounded-full bg-gray-600"></div>';
-    lbl.className = 'text-gray-500';
+    btn.textContent = '✓ Sensors Active'; btn.disabled = true;
+    btn.className   = btn.className.replace('bg-blue-600 hover:bg-blue-500','bg-green-700');
+  } catch(e) {
+    btn.textContent = 'Permission Denied — retry'; btn.disabled = false;
+    console.warn(e);
   }
 }
 
-function resetSteps() { [1,2,3,4].forEach(n => setStep(n,'idle')); }
+// ── Camera overlay ───────────────────────────────────────────────────
+function startOverlayLoop() {
+  const canvas = document.getElementById('cam-canvas');
+  const ctx    = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
 
-// ── Confidence bars ────────────────────────────────────────────────────
-function renderBars(containerId, scores, colorClass) {
-  const sorted = [...VOCAB].sort((a,b) => scores[b] - scores[a]);
-  document.getElementById(containerId).innerHTML = sorted.map(w => `
-    <div class="flex items-center gap-2 text-xs">
-      <span class="text-gray-500 w-9 text-right capitalize">${w}</span>
-      <div class="flex-1 bg-gray-800 rounded-full h-2.5 overflow-hidden">
-        <div class="${colorClass} h-2.5 rounded-full conf-bar" style="width:${scores[w]}%"></div>
+  function drawFrame() {
+    ctx.clearRect(0,0,W,H);
+
+    // Subtle jitter for realism
+    roiJitter.x += (Math.random()-.5) * .003;
+    roiJitter.y += (Math.random()-.5) * .002;
+    roiJitter.x  = Math.max(-.015, Math.min(.015, roiJitter.x));
+    roiJitter.y  = Math.max(-.01,  Math.min(.01,  roiJitter.y));
+
+    const rx = (lipROI.x + roiJitter.x) * W;
+    const ry = (lipROI.y + roiJitter.y) * H;
+    const rw = lipROI.w * W;
+    const rh = lipROI.h * H;
+
+    // Face bounding box (dim)
+    ctx.strokeStyle = isRecording ? 'rgba(59,130,246,.3)' : 'rgba(59,130,246,.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,4]);
+    ctx.strokeRect(W*.12, H*.04, W*.76, H*.88);
+    ctx.setLineDash([]);
+
+    // Lip ROI box
+    const roiColor = isRecording ? '#ef4444' : '#10b981';
+    ctx.strokeStyle = roiColor;
+    ctx.lineWidth   = isRecording ? 2.5 : 1.8;
+    ctx.strokeRect(rx, ry, rw, rh);
+
+    // Corner ticks
+    const tk = 10;
+    ctx.lineWidth = isRecording ? 3 : 2;
+    [[rx,ry,1,1],[rx+rw,ry,-1,1],[rx,ry+rh,1,-1],[rx+rw,ry+rh,-1,-1]].forEach(([cx,cy,sx,sy])=>{
+      ctx.beginPath(); ctx.moveTo(cx+sx*tk,cy); ctx.lineTo(cx,cy); ctx.lineTo(cx,cy+sy*tk);
+      ctx.stroke();
+    });
+
+    // ROI label
+    ctx.fillStyle = isRecording ? '#ef4444' : '#10b981';
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.fillText('LIP ROI', rx+3, ry-4);
+
+    // MediaPipe landmark dots (simulated)
+    const dots = simulateLandmarks(rx, ry, rw, rh);
+    dots.forEach(([dx,dy])=>{
+      ctx.fillStyle = isRecording ? 'rgba(239,68,68,.85)' : 'rgba(74,222,128,.75)';
+      ctx.beginPath(); ctx.arc(dx,dy,2.5,0,Math.PI*2); ctx.fill();
+    });
+
+    // Frame counter badge
+    const t = Date.now();
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(W-84,4,80,18);
+    ctx.fillStyle = '#60a5fa';
+    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.fillText(`FRAME ${Math.floor(t/33)%9999}`, W-80, 16);
+
+    // Recording indicator
+    if (isRecording) {
+      ctx.fillStyle = `rgba(239,68,68,${.6 + .4*Math.sin(t/200)})`;
+      ctx.beginPath(); ctx.arc(12,12,6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'white'; ctx.font = '9px Inter, sans-serif';
+      ctx.fillText('REC', 22, 16);
+    }
+
+    requestAnimationFrame(drawFrame);
+  }
+  requestAnimationFrame(drawFrame);
+}
+
+function simulateLandmarks(rx,ry,rw,rh) {
+  // 12 lip landmark positions (normalized within ROI)
+  const pts = [
+    [.15,.35],[.3,.15],[.5,.1],[.7,.15],[.85,.35],
+    [.85,.65],[.7,.85],[.5,.9],[.3,.85],[.15,.65],
+    [.5,.3],[.5,.7]
+  ];
+  return pts.map(([px,py])=>[rx+px*rw, ry+py*rh]);
+}
+
+// ── Mic waveform ─────────────────────────────────────────────────────
+function startMicViz() {
+  const canvas = document.getElementById('mic-canvas');
+  const ctx    = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+  const W = canvas.width, H = canvas.height;
+  const bufLen = analyser.frequencyBinCount;
+  const dataArr = new Uint8Array(bufLen);
+
+  function draw() {
+    micAnimId = requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(dataArr);
+
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#050810';
+    ctx.fillRect(0,0,W,H);
+
+    // Gradient line
+    const grad = ctx.createLinearGradient(0,0,W,0);
+    grad.addColorStop(0,'#1d4ed8'); grad.addColorStop(.5,'#3b82f6'); grad.addColorStop(1,'#8b5cf6');
+    ctx.strokeStyle = grad; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    const sliceW = W / bufLen;
+    let x = 0;
+    for (let i=0; i<bufLen; i++) {
+      const v = dataArr[i]/128, y = v * H/2;
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      x += sliceW;
+    }
+    ctx.stroke();
+
+    // dB level
+    const rms = Math.sqrt(dataArr.reduce((s,v)=>s+(v-128)**2,0)/bufLen);
+    const db  = rms > 0 ? Math.round(20*Math.log10(rms/128)) : -60;
+    document.getElementById('db-label').textContent = `${Math.max(-60,db)} dB`;
+  }
+  draw();
+}
+
+// ── Sliders ──────────────────────────────────────────────────────────
+document.getElementById('noise-slider').addEventListener('input', e=>{
+  document.getElementById('noise-val').textContent = e.target.value+'%';
+  updateWeights();
+});
+document.getElementById('light-slider').addEventListener('input', e=>{
+  document.getElementById('light-val').textContent = e.target.value+'%';
+  updateWeights();
+});
+function updateWeights(){
+  const n  = document.getElementById('noise-slider').value/100;
+  const l  = document.getElementById('light-slider').value/100;
+  const aw = Math.max(.05,1-n), vw = Math.max(.05,.3+l*.7), t = aw+vw;
+  const ap = Math.round(aw/t*100), vp = Math.round(vw/t*100);
+  document.getElementById('aw-pct').textContent = ap+'%';
+  document.getElementById('vw-pct').textContent = vp+'%';
+  document.getElementById('aw-bar').style.width  = ap+'%';
+  document.getElementById('vw-bar').style.width  = vp+'%';
+}
+
+// ── Pipeline helpers ─────────────────────────────────────────────────
+function litNode(id, cls){
+  const el = document.getElementById(id);
+  el.classList.remove('lit-blue','lit-purple','lit-green');
+  if(cls) el.classList.add(cls);
+  el.querySelectorAll('svg,span').forEach(c=>{
+    c.classList.remove('text-gray-600','text-blue-400','text-purple-400','text-green-400');
+    c.classList.add(cls==='lit-blue'?'text-blue-400':cls==='lit-purple'?'text-purple-400':cls==='lit-green'?'text-green-400':'text-gray-600');
+  });
+}
+function resetNodes(){ ['pn-mic','pn-mfcc','pn-cnna','pn-cam','pn-roi','pn-lstm','pn-fusion','pn-out'].forEach(id=>litNode(id,null)); }
+
+function setStep(n,state){
+  const el=document.getElementById(`s${n}`), dot=document.getElementById(`d${n}`), lbl=el.querySelector('span');
+  el.classList.remove('step-idle','step-active','step-done');
+  if(state==='active'){
+    el.classList.add('step-active');
+    dot.innerHTML='<div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>';
+    lbl.className='text-blue-300';
+  } else if(state==='done'){
+    el.classList.add('step-done');
+    dot.innerHTML=`<svg class="w-3 h-3 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>`;
+    lbl.className='text-green-400';
+  } else {
+    el.classList.add('step-idle');
+    dot.innerHTML='<div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div>';
+    lbl.className='text-gray-600';
+  }
+}
+function resetSteps(){ [1,2,3,4].forEach(n=>setStep(n,'idle')); }
+
+// ── Confidence bars ──────────────────────────────────────────────────
+function renderBars(id, scores, col){
+  const sorted = [...VOCAB].sort((a,b)=>scores[b]-scores[a]);
+  document.getElementById(id).innerHTML = sorted.map(w=>`
+    <div class="flex items-center gap-1.5 text-xs">
+      <span class="text-gray-600 w-9 text-right capitalize">${w}</span>
+      <div class="flex-1 bg-gray-800 rounded-full h-2 overflow-hidden">
+        <div class="${col} h-2 rounded-full conf-bar" style="width:${scores[w]}%"></div>
       </div>
-      <span class="text-gray-500 w-9 mono text-right">${scores[w]}%</span>
-    </div>
-  `).join('');
+      <span class="text-gray-600 w-8 mono text-right">${scores[w]}%</span>
+    </div>`).join('');
 }
 
-// ── History ────────────────────────────────────────────────────────────
-function addHistory(word, conf, latency) {
-  history.unshift({ word, conf, latency, time: new Date().toLocaleTimeString() });
-  if (history.length > 8) history.pop();
-  const container = document.getElementById('history-list');
-  container.innerHTML = history.map(h => `
-    <div class="history-row flex items-center justify-between py-1.5 px-2 rounded-lg bg-gray-800/50 text-xs">
-      <span class="font-bold uppercase text-white mono w-12">${h.word}</span>
-      <span class="text-green-400 mono">${h.conf}%</span>
-      <span class="text-yellow-400/70 mono">${h.latency}ms</span>
-      <span class="text-gray-600">${h.time}</span>
-    </div>
-  `).join('');
+// ── Vocab chip highlight ─────────────────────────────────────────────
+function highlightVocab(word){
+  VOCAB.forEach(w=>{
+    const el=document.getElementById(`voc-${w}`);
+    if(w===word){
+      el.className='mono text-xs px-2.5 py-0.5 rounded-full border border-green-600 bg-green-900/30 text-green-400 transition-all font-bold';
+    } else {
+      el.className='mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-600 transition-all';
+    }
+  });
+}
+function resetVocab(){
+  VOCAB.forEach(w=>{ document.getElementById(`voc-${w}`).className='mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all'; });
 }
 
-function clearHistory() {
-  history.length = 0;
-  document.getElementById('history-list').innerHTML =
-    '<p class="text-xs text-gray-600 italic text-center py-4">No predictions yet</p>';
+// ── Dirichlet simulation ─────────────────────────────────────────────
+function dirichlet(n, alpha=1.8){
+  const s = Array.from({length:n}, ()=>-Math.log(Math.random()+1e-9)*alpha);
+  const t = s.reduce((a,b)=>a+b,0);
+  return s.map(v=>v/t);
 }
 
-// ── Main prediction flow ───────────────────────────────────────────────
-async function startPrediction() {
-  const btn = document.getElementById('record-btn');
-  btn.disabled = true;
-  btn.classList.add('ring-anim', 'opacity-75');
+// ── Main prediction ──────────────────────────────────────────────────
+async function startPrediction(){
+  if(isRecording) return;
+  isRecording = true;
 
-  document.getElementById('result-banner').classList.add('hidden');
-  document.getElementById('model-results').classList.add('hidden');
-  document.getElementById('record-hint').textContent = '🔴 Recording...';
-  document.getElementById('wave-viz').classList.remove('hidden');
-  document.getElementById('wave-viz').classList.add('flex');
-  resetSteps();
-  resetPipeline();
+  const btn = document.getElementById('rec-btn');
+  btn.classList.add('ring-anim','opacity-80');
+  document.getElementById('rec-hint').textContent = '🔴 Recording...';
+  document.getElementById('banner').classList.add('hidden');
+  document.getElementById('cards').classList.add('hidden');
+  document.getElementById('idle-placeholder').classList.remove('hidden');
+  resetSteps(); resetNodes(); resetVocab();
 
-  // Step 1 — Capture
-  setStep(1,'active');
-  litNode('pn-mic','lit-blue'); litNode('pn-cam','lit-purple');
-  await sleep(750);
+  // Step 1
+  setStep(1,'active'); litNode('pn-mic','lit-blue'); litNode('pn-cam','lit-purple');
+  await sleep(800);
   setStep(1,'done');
 
-  // Step 2 — Preprocess
-  setStep(2,'active');
-  litNode('pn-mfcc','lit-blue'); litNode('pn-roi','lit-purple');
-  document.getElementById('record-hint').textContent = '⚙️ Extracting ROI + MFCC...';
-  await sleep(650);
+  // Step 2
+  setStep(2,'active'); litNode('pn-mfcc','lit-blue'); litNode('pn-roi','lit-purple');
+  document.getElementById('rec-hint').textContent = '⚙️ Extracting ROI + MFCC...';
+  await sleep(600);
   setStep(2,'done');
 
-  // Step 3 — CNN/LSTM inference + API call
-  setStep(3,'active');
-  litNode('pn-cnn-a','lit-blue'); litNode('pn-lstm','lit-purple');
-  document.getElementById('record-hint').textContent = '🧠 Running CNN + LSTM...';
+  // Step 3 + API call
+  setStep(3,'active'); litNode('pn-cnna','lit-blue'); litNode('pn-lstm','lit-purple');
+  document.getElementById('rec-hint').textContent = '🧠 CNN + LSTM inference...';
 
-  const noise   = document.getElementById('noise-slider').value / 100;
-  const lighting = document.getElementById('light-slider').value / 100;
-  const resp = await fetch('/predict', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ noise_level: noise, lighting_level: lighting })
+  const noise   = document.getElementById('noise-slider').value/100;
+  const lighting = document.getElementById('light-slider').value/100;
+  const resp = await fetch('/predict',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({noise_level:noise, lighting_level:lighting})
   });
   const data = await resp.json();
-
-  await sleep(550);
+  await sleep(500);
   setStep(3,'done');
 
-  // Step 4 — Fusion
-  setStep(4,'active');
-  litNode('pn-fusion','lit-green');
-  document.getElementById('record-hint').textContent = '🔀 Dynamic fusion...';
+  // Step 4
+  setStep(4,'active'); litNode('pn-fusion','lit-green');
+  document.getElementById('rec-hint').textContent = '🔀 Dynamic fusion...';
   await sleep(400);
-  setStep(4,'done');
-  litNode('pn-output','lit-green');
+  setStep(4,'done'); litNode('pn-out','lit-green');
 
   // Show results
-  document.getElementById('wave-viz').classList.add('hidden');
-  document.getElementById('wave-viz').classList.remove('flex');
+  document.getElementById('idle-placeholder').classList.add('hidden');
 
   // Banner
-  const banner = document.getElementById('result-banner');
+  const banner = document.getElementById('banner');
   banner.classList.remove('hidden');
-  banner.classList.remove('slide-up'); void banner.offsetWidth; banner.classList.add('slide-up');
-  document.getElementById('banner-word').textContent  = data.fusion.word.toUpperCase();
-  document.getElementById('banner-conf').textContent  = data.fusion.confidence + '%';
-  document.getElementById('banner-aw').textContent    = data.fusion.audio_weight + '%';
-  document.getElementById('banner-vw').textContent    = data.fusion.video_weight + '%';
-  document.getElementById('banner-latency').textContent = data.latency_ms + ' ms';
+  banner.style.animation='none'; void banner.offsetWidth; banner.style.animation='';
 
-  // Word color based on confidence
-  const bw = document.getElementById('banner-word');
-  bw.style.color = data.fusion.confidence >= 55 ? '#4ade80'
-                 : data.fusion.confidence >= 35 ? '#facc15'
-                 : '#f87171';
+  const conf = data.fusion.confidence;
+  const color = conf>=55 ? '#4ade80' : conf>=35 ? '#facc15' : '#f87171';
+  document.getElementById('b-word').textContent = data.fusion.word.toUpperCase();
+  document.getElementById('b-word').style.color = color;
+  document.getElementById('b-conf').textContent = conf+'%';
+  document.getElementById('b-aw').textContent   = data.fusion.audio_weight+'%';
+  document.getElementById('b-vw').textContent   = data.fusion.video_weight+'%';
+  document.getElementById('b-lat').textContent  = data.latency_ms+'ms';
 
-  // 3-column cards
-  const mr = document.getElementById('model-results');
-  mr.classList.remove('hidden');
-  mr.classList.remove('slide-up'); void mr.offsetWidth; mr.classList.add('slide-up');
-
+  // Cards
+  const cards = document.getElementById('cards');
+  cards.classList.remove('hidden');
   document.getElementById('w-word').textContent = data.whisper.word.toUpperCase();
-  document.getElementById('w-conf').textContent = data.whisper.confidence + '%';
+  document.getElementById('w-conf').textContent = data.whisper.confidence+'%';
   document.getElementById('l-word').textContent = data.lip.word.toUpperCase();
-  document.getElementById('l-conf').textContent = data.lip.confidence + '%';
+  document.getElementById('l-conf').textContent = data.lip.confidence+'%';
   document.getElementById('f-word').textContent = data.fusion.word.toUpperCase();
-  document.getElementById('f-conf').textContent = data.fusion.confidence + '%';
+  document.getElementById('f-conf').textContent = data.fusion.confidence+'%';
 
-  renderBars('w-bars', data.whisper.scores, 'bg-blue-500');
-  renderBars('l-bars', data.lip.scores,     'bg-purple-500');
-  renderBars('f-bars', data.fusion.scores,  'bg-green-500');
+  renderBars('w-bars', data.whisper.scores,'bg-blue-500');
+  renderBars('l-bars', data.lip.scores,   'bg-purple-500');
+  renderBars('f-bars', data.fusion.scores,'bg-green-500');
 
-  addHistory(data.fusion.word, data.fusion.confidence, data.latency_ms);
+  highlightVocab(data.fusion.word);
+  addHist(data.fusion.word, data.fusion.confidence, data.latency_ms);
 
-  document.getElementById('record-hint').textContent = 'Click to predict again';
-  btn.disabled = false;
-  btn.classList.remove('ring-anim','opacity-75');
+  document.getElementById('rec-hint').textContent = 'Press to capture again';
+  btn.classList.remove('ring-anim','opacity-80');
+  isRecording = false;
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+// ── History ──────────────────────────────────────────────────────────
+function addHist(word, conf, lat){
+  histArr.unshift({word, conf, lat, time:new Date().toLocaleTimeString()});
+  if(histArr.length>8) histArr.pop();
+  document.getElementById('hist').innerHTML = histArr.map(h=>`
+    <div class="flex items-center justify-between py-1.5 px-2 rounded-lg bg-gray-800/50 text-xs">
+      <span class="font-bold uppercase text-white mono w-12">${h.word}</span>
+      <span class="text-green-400 mono">${h.conf}%</span>
+      <span class="text-yellow-400/70 mono">${h.lat}ms</span>
+      <span class="text-gray-600">${h.time}</span>
+    </div>`).join('');
+}
+function clearHist(){
+  histArr.length=0;
+  document.getElementById('hist').innerHTML='<p class="text-xs text-gray-700 italic text-center py-3">No predictions yet</p>';
+}
 
-// Init
-updateWeightPreview();
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+updateWeights();
 </script>
 </body>
 </html>
