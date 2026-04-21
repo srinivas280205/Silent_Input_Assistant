@@ -4,6 +4,10 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Silent Input Assistant</title>
+
+  <!-- MediaPipe FaceMesh (real 468 landmarks) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
@@ -11,14 +15,12 @@
     body { font-family:'Inter',sans-serif; background:#060910; }
     .mono { font-family:'JetBrains Mono',monospace; }
 
-    /* ── Animations ─────────────────────────────────────────────────── */
     @keyframes slide-up   { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
     @keyframes pulse-ring { 0%{transform:scale(1);opacity:.9} 100%{transform:scale(2.4);opacity:0} }
     @keyframes glow-green { 0%,100%{box-shadow:0 0 10px rgba(74,222,128,.25)} 50%{box-shadow:0 0 28px rgba(74,222,128,.6)} }
-    @keyframes scan-line  { 0%{top:0} 100%{top:100%} }
-    @keyframes blink-rec  { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes scan-h     { 0%{top:0%} 100%{top:100%} }
     @keyframes dash-run   { to{stroke-dashoffset:-18} }
-    @keyframes fadeIn     { from{opacity:0} to{opacity:1} }
+    @keyframes spin       { to{transform:rotate(360deg)} }
 
     .slide-up   { animation:slide-up .4s ease forwards }
     .glow-green { animation:glow-green 2s ease-in-out infinite }
@@ -27,55 +29,54 @@
       border:3px solid #ef4444; animation:pulse-ring 1.2s ease-out infinite;
     }
 
-    /* pipeline step states */
     .step-idle   { border-color:#1f2937; background:transparent }
-    .step-active { border-color:#3b82f6; background:rgba(59,130,246,.07);
-                   box-shadow:0 0 12px rgba(59,130,246,.2) }
+    .step-active { border-color:#3b82f6; background:rgba(59,130,246,.07); box-shadow:0 0 12px rgba(59,130,246,.2) }
     .step-done   { border-color:#10b981; background:rgba(16,185,129,.06) }
 
-    /* pipeline node lit states */
     .node { transition:all .3s ease }
-    .lit-blue   { border-color:#3b82f6!important; background:rgba(59,130,246,.18)!important;
-                  box-shadow:0 0 16px rgba(59,130,246,.45) }
-    .lit-purple { border-color:#a855f7!important; background:rgba(168,85,247,.18)!important;
-                  box-shadow:0 0 16px rgba(168,85,247,.45) }
-    .lit-green  { border-color:#10b981!important; background:rgba(16,185,129,.18)!important;
-                  box-shadow:0 0 16px rgba(16,185,129,.45) }
+    .lit-blue   { border-color:#3b82f6!important; background:rgba(59,130,246,.18)!important; box-shadow:0 0 16px rgba(59,130,246,.45) }
+    .lit-purple { border-color:#a855f7!important; background:rgba(168,85,247,.18)!important; box-shadow:0 0 16px rgba(168,85,247,.45) }
+    .lit-green  { border-color:#10b981!important; background:rgba(16,185,129,.18)!important; box-shadow:0 0 16px rgba(16,185,129,.45) }
 
-    /* flow lines */
-    .flow-line { stroke-dasharray:6 4; animation:dash-run .55s linear infinite; opacity:.35 }
+    .flow-line  { stroke-dasharray:6 4; animation:dash-run .55s linear infinite; opacity:.3 }
     .flow-line.active { opacity:1; stroke:#3b82f6 }
 
-    /* recording dot */
-    .rec-dot { animation:blink-rec .8s ease-in-out infinite }
-
-    /* scan line on camera */
-    #scan-line {
-      position:absolute; left:0; right:0; height:2px;
-      background:linear-gradient(90deg,transparent,rgba(59,130,246,.6),transparent);
-      animation:scan-line 2.5s linear infinite; pointer-events:none;
-    }
-
-    /* conf bar */
     .conf-bar { transition:width .85s cubic-bezier(.4,0,.2,1) }
 
-    /* scrollbar */
     ::-webkit-scrollbar{width:3px}
     ::-webkit-scrollbar-track{background:#0d1117}
     ::-webkit-scrollbar-thumb{background:#1f2937;border-radius:2px}
 
-    /* camera container */
-    #camera-wrap { position:relative; background:#0d1117; border-radius:12px; overflow:hidden }
-    #cam-video   { width:100%; height:100%; object-fit:cover; display:block; transform:scaleX(-1) }
-    #cam-canvas  { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none }
-    #cam-no-perm { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
-                   justify-content:center; gap:8px; color:#4b5563; font-size:12px }
+    #cam-wrap   { position:relative; background:#0a0d14; border-radius:12px; overflow:hidden; aspect-ratio:4/3 }
+    #cam-video  { width:100%; height:100%; object-fit:cover; display:block; transform:scaleX(-1) }
+    #cam-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none }
+
+    /* corner marks */
+    .corner { position:absolute; width:14px; height:14px; pointer-events:none }
+    .corner-tl { top:8px;  left:8px;  border-top:2px solid #3b82f6; border-left:2px solid #3b82f6;  border-radius:2px 0 0 0 }
+    .corner-tr { top:8px;  right:8px; border-top:2px solid #3b82f6; border-right:2px solid #3b82f6; border-radius:0 2px 0 0 }
+    .corner-bl { bottom:8px; left:8px;  border-bottom:2px solid #3b82f6; border-left:2px solid #3b82f6;  border-radius:0 0 0 2px }
+    .corner-br { bottom:8px; right:8px; border-bottom:2px solid #3b82f6; border-right:2px solid #3b82f6; border-radius:0 0 2px 0 }
+
+    /* scan line */
+    #scan-bar { position:absolute; left:0; right:0; height:1px;
+      background:linear-gradient(90deg,transparent 0%,rgba(59,130,246,.5) 50%,transparent 100%);
+      animation:scan-h 2.8s linear infinite; pointer-events:none }
+
+    /* MP loading spinner */
+    #mp-loader { position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:10px; background:rgba(6,9,16,.85) }
+    .spinner { width:32px; height:32px; border:3px solid #1f2937;
+      border-top-color:#3b82f6; border-radius:50%; animation:spin .8s linear infinite }
+
+    #cam-noperm { position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:8px; color:#374151 }
   </style>
 </head>
 <body class="text-gray-100 min-h-screen flex flex-col">
 
-<!-- ══════════════════════════ HEADER ══════════════════════════════════ -->
-<header class="flex-shrink-0 px-6 py-3 border-b border-gray-800/70 bg-gray-900/80 backdrop-blur flex items-center justify-between">
+<!-- ═══════════════════════ HEADER ══════════════════════════════════ -->
+<header class="flex-shrink-0 px-6 py-3 border-b border-gray-800/60 bg-gray-900/80 backdrop-blur flex items-center justify-between">
   <div class="flex items-center gap-3">
     <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-900/40">
       <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -88,16 +89,19 @@
       <p class="text-xs text-gray-500">Multimodal · Lip &amp; Whisper Recognition</p>
     </div>
   </div>
-  <div class="flex items-center gap-3">
-    <!-- live indicators -->
-    <div class="flex items-center gap-4 text-xs mr-2">
+  <div class="flex items-center gap-4">
+    <div class="flex items-center gap-4 text-xs">
       <span class="flex items-center gap-1.5">
-        <span id="dot-cam" class="w-2 h-2 rounded-full bg-gray-600"></span>
-        <span id="lbl-cam" class="text-gray-500">Camera</span>
+        <span id="dot-cam" class="w-2 h-2 rounded-full bg-gray-700 transition-colors"></span>
+        <span id="lbl-cam" class="text-gray-600">Camera</span>
       </span>
       <span class="flex items-center gap-1.5">
-        <span id="dot-mic" class="w-2 h-2 rounded-full bg-gray-600"></span>
-        <span id="lbl-mic" class="text-gray-500">Microphone</span>
+        <span id="dot-mic" class="w-2 h-2 rounded-full bg-gray-700 transition-colors"></span>
+        <span id="lbl-mic" class="text-gray-600">Microphone</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span id="dot-mp"  class="w-2 h-2 rounded-full bg-gray-700 transition-colors"></span>
+        <span id="lbl-mp"  class="text-gray-600">MediaPipe</span>
       </span>
       <span class="flex items-center gap-1.5">
         <span class="w-2 h-2 rounded-full bg-green-400"></span>
@@ -108,31 +112,32 @@
   </div>
 </header>
 
-<!-- ══════════════════════════ MAIN ════════════════════════════════════ -->
+<!-- ═══════════════════════ MAIN ════════════════════════════════════ -->
 <main class="flex-1 grid grid-cols-12 gap-4 p-4 max-w-[1400px] w-full mx-auto">
 
-  <!-- ── LEFT: Camera + Mic + Controls ───────────────────────────────── -->
+  <!-- ── LEFT: Camera + Mic + Controls ─────────────────────────────── -->
   <div class="col-span-4 flex flex-col gap-3">
 
-    <!-- Camera feed -->
-    <div id="camera-wrap" class="border border-gray-800 aspect-video">
+    <!-- Camera -->
+    <div id="cam-wrap" class="border border-gray-800">
       <video id="cam-video" autoplay muted playsinline></video>
       <canvas id="cam-canvas"></canvas>
-      <div id="scan-line"></div>
-      <!-- no permission fallback -->
-      <div id="cam-no-perm">
-        <svg class="w-8 h-8 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-        </svg>
-        <span>Click "Enable Camera" below</span>
-      </div>
-      <!-- corner marks -->
-      <div class="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-blue-500 rounded-tl pointer-events-none"></div>
-      <div class="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-blue-500 rounded-tr pointer-events-none"></div>
-      <div class="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-blue-500 rounded-bl pointer-events-none"></div>
-      <div class="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-blue-500 rounded-br pointer-events-none"></div>
+      <div id="scan-bar"></div>
+      <div class="corner corner-tl"></div>
+      <div class="corner corner-tr"></div>
+      <div class="corner corner-bl"></div>
+      <div class="corner corner-br"></div>
       <!-- FPS badge -->
-      <div class="absolute top-2 left-1/2 -translate-x-1/2 mono text-xs bg-black/60 px-2 py-0.5 rounded text-blue-400">30 FPS</div>
+      <div class="absolute top-2 left-1/2 -translate-x-1/2 mono text-xs bg-black/60 px-2 py-0.5 rounded text-blue-400 z-10">30 FPS · 64×64 ROI</div>
+      <!-- Loader overlay -->
+      <div id="mp-loader" class="z-20">
+        <div class="spinner"></div>
+        <span class="text-xs text-gray-400" id="mp-status">Initializing MediaPipe…</span>
+        <button onclick="enableSensors()"
+          class="mt-1 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-semibold rounded-lg transition-all">
+          Enable Camera &amp; Mic
+        </button>
+      </div>
     </div>
 
     <!-- Mic waveform -->
@@ -144,24 +149,17 @@
           </svg>
           Microphone Input
         </span>
-        <span class="mono text-xs text-gray-500" id="db-label">– dB</span>
+        <span class="mono text-xs text-gray-600" id="db-label">– dB</span>
       </div>
-      <canvas id="mic-canvas" class="w-full rounded-lg bg-gray-950" height="48"></canvas>
+      <canvas id="mic-canvas" class="w-full rounded-lg bg-gray-950" height="44"></canvas>
       <div class="flex justify-between text-xs text-gray-700 mt-1 mono">
-        <span>22050 Hz</span><span>Mono</span><span>MFCC ready</span>
+        <span>22050 Hz</span><span>Mono</span><span id="mfcc-status">MFCC ready</span>
       </div>
     </div>
-
-    <!-- Enable button -->
-    <button id="enable-btn" onclick="enableSensors()"
-            class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-semibold transition-all active:scale-95">
-      🎙️ Enable Camera &amp; Microphone
-    </button>
 
     <!-- Environment sliders -->
     <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex-1">
       <p class="text-xs font-semibold text-gray-400 mb-3">Environment Controls</p>
-
       <div class="mb-4">
         <div class="flex justify-between mb-1.5">
           <label class="text-xs text-gray-500">🔊 Background Noise</label>
@@ -171,7 +169,6 @@
                class="w-full accent-orange-500 cursor-pointer">
         <div class="flex justify-between text-xs text-gray-700 mt-1"><span>Silent</span><span>Noisy</span></div>
       </div>
-
       <div class="mb-4">
         <div class="flex justify-between mb-1.5">
           <label class="text-xs text-gray-500">💡 Lighting Quality</label>
@@ -181,102 +178,79 @@
                class="w-full accent-yellow-500 cursor-pointer">
         <div class="flex justify-between text-xs text-gray-700 mt-1"><span>Dark</span><span>Bright</span></div>
       </div>
-
-      <!-- weight preview -->
+      <!-- Weight preview -->
       <div class="bg-gray-800/60 rounded-lg p-3 text-xs space-y-2 border border-gray-700/40">
         <p class="text-gray-500 font-semibold">Fusion Weights (live)</p>
         <div>
           <div class="flex justify-between mb-1">
-            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>Audio CNN</span>
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span>Audio CNN</span>
             <span class="mono text-blue-400" id="aw-pct">70%</span>
           </div>
-          <div class="bg-gray-700 rounded-full h-1.5">
-            <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" id="aw-bar" style="width:70%"></div>
-          </div>
+          <div class="bg-gray-700 rounded-full h-1.5"><div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" id="aw-bar" style="width:70%"></div></div>
         </div>
         <div>
           <div class="flex justify-between mb-1">
-            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>Video LSTM</span>
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-500"></span>Video LSTM</span>
             <span class="mono text-purple-400" id="vw-pct">30%</span>
           </div>
-          <div class="bg-gray-700 rounded-full h-1.5">
-            <div class="bg-purple-500 h-1.5 rounded-full transition-all duration-300" id="vw-bar" style="width:30%"></div>
-          </div>
+          <div class="bg-gray-700 rounded-full h-1.5"><div class="bg-purple-500 h-1.5 rounded-full transition-all duration-300" id="vw-bar" style="width:30%"></div></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ── MIDDLE: Pipeline + Record + History ──────────────────────────── -->
+  <!-- ── MIDDLE: Pipeline + Record + History ──────────────────────── -->
   <div class="col-span-3 flex flex-col gap-3">
 
-    <!-- Pipeline -->
+    <!-- Pipeline diagram -->
     <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
       <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Pipeline</p>
-
-      <!-- Audio stream -->
       <div class="flex items-center gap-1 mb-1">
         <span class="text-xs text-blue-400/50 w-8 font-medium">AUD</span>
         <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-mic">
           <svg class="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
         </div>
-        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
-          <path class="flow-line" id="fl1" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
-        </svg>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none"><path class="flow-line" d="M0 3L60 3" stroke="#374151" stroke-width="1.5" fill="none"/></svg>
         <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-mfcc">
           <span class="text-xs mono text-gray-600 font-bold">MF</span>
         </div>
-        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
-          <path class="flow-line" id="fl2" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
-        </svg>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none"><path class="flow-line" d="M0 3L60 3" stroke="#374151" stroke-width="1.5" fill="none"/></svg>
         <div class="node w-11 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cnna">
           <span class="text-xs mono text-gray-600 font-bold">CNN</span>
         </div>
       </div>
-
-      <!-- Converge arrows + Fusion -->
-      <div class="flex items-center gap-1 my-1 pl-9">
-        <svg class="w-full h-8" viewBox="0 0 200 32">
-          <path id="fl-ca" d="M168 6 Q185 6 185 16 L200 16" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
-          <path id="fl-cb" d="M168 26 Q185 26 185 16 L200 16" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
+      <div class="flex items-center gap-1 my-0.5 pl-8">
+        <svg class="w-full h-7" viewBox="0 0 200 28">
+          <path d="M162 5 Q182 5 182 14 L200 14"  stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="4 3"/>
+          <path d="M162 23 Q182 23 182 14 L200 14" stroke="#374151" stroke-width="1.5" fill="none" stroke-dasharray="4 3"/>
         </svg>
       </div>
-
-      <!-- Video stream -->
       <div class="flex items-center gap-1 mt-1">
         <span class="text-xs text-purple-400/50 w-8 font-medium">VID</span>
-        <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cam">
+        <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-cam2">
           <svg class="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         </div>
-        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
-          <path class="flow-line" id="fl3" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
-        </svg>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none"><path class="flow-line" d="M0 3L60 3" stroke="#374151" stroke-width="1.5" fill="none"/></svg>
         <div class="node w-10 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-roi">
           <span class="text-xs mono text-gray-600 font-bold">ROI</span>
         </div>
-        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none">
-          <path class="flow-line" id="fl4" d="M0 3 L60 3" stroke="#374151" stroke-width="1.5" fill="none"/>
-        </svg>
+        <svg class="flex-1 h-3" viewBox="0 0 60 6" preserveAspectRatio="none"><path class="flow-line" d="M0 3L60 3" stroke="#374151" stroke-width="1.5" fill="none"/></svg>
         <div class="node w-11 h-8 rounded-lg border border-gray-700 flex items-center justify-center" id="pn-lstm">
           <span class="text-xs mono text-gray-600 font-bold leading-none text-center">CNN<br>LSTM</span>
         </div>
       </div>
-
-      <!-- Fusion → Output -->
-      <div class="flex items-center gap-2 mt-2 pl-9 justify-end">
+      <div class="flex items-center gap-2 mt-2 justify-end">
         <div class="node w-16 h-10 rounded-xl border-2 border-gray-700 flex items-center justify-center" id="pn-fusion">
-          <span class="text-xs mono text-gray-500 font-bold text-center leading-tight">FUSE</span>
+          <span class="text-xs mono text-gray-500 font-bold">FUSE</span>
         </div>
-        <svg class="w-6 h-3" viewBox="0 0 24 6">
-          <path class="flow-line" id="fl-out" d="M0 3 L24 3" stroke="#374151" stroke-width="1.5" fill="none"/>
-        </svg>
+        <svg class="w-6 h-3" viewBox="0 0 24 6"><path class="flow-line" d="M0 3L24 3" stroke="#374151" stroke-width="1.5" fill="none"/></svg>
         <div class="node w-10 h-10 rounded-xl border border-gray-700 flex items-center justify-center" id="pn-out">
           <svg class="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
       </div>
     </div>
 
-    <!-- Record -->
+    <!-- Record button -->
     <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center">
       <div class="relative mb-2">
         <button id="rec-btn" onclick="startPrediction()"
@@ -289,23 +263,21 @@
         </button>
       </div>
       <p class="text-xs text-gray-500 text-center mb-3" id="rec-hint">Press to capture command</p>
-
-      <!-- steps -->
       <div class="w-full space-y-1.5">
         <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s1">
-          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d1"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0" id="d1"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
           <span class="text-gray-600">Capture (2s)</span>
         </div>
         <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s2">
-          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d2"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
-          <span class="text-gray-600">ROI + MFCC</span>
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0" id="d2"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <span class="text-gray-600">ROI + MFCC Extract</span>
         </div>
         <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s3">
-          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d3"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
-          <span class="text-gray-600">CNN + LSTM</span>
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0" id="d3"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <span class="text-gray-600">CNN + LSTM Inference</span>
         </div>
         <div class="step-idle flex items-center gap-2 p-2 rounded-lg border text-xs transition-all" id="s4">
-          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center" id="d4"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
+          <div class="w-4 h-4 rounded-full border-2 border-gray-700 flex items-center justify-center flex-shrink-0" id="d4"><div class="w-1.5 h-1.5 rounded-full bg-gray-700"></div></div>
           <span class="text-gray-600">Fusion → Output</span>
         </div>
       </div>
@@ -315,7 +287,7 @@
     <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 flex-1">
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs font-semibold text-gray-500">History</span>
-        <button onclick="clearHist()" class="text-xs text-gray-700 hover:text-gray-400">Clear</button>
+        <button onclick="clearHist()" class="text-xs text-gray-700 hover:text-gray-400 transition-colors">Clear</button>
       </div>
       <div id="hist" class="space-y-1 max-h-36 overflow-y-auto">
         <p class="text-xs text-gray-700 italic text-center py-3">No predictions yet</p>
@@ -323,18 +295,18 @@
     </div>
   </div>
 
-  <!-- ── RIGHT: Results ────────────────────────────────────────────────── -->
+  <!-- ── RIGHT: Results ──────────────────────────────────────────────── -->
   <div class="col-span-5 flex flex-col gap-3">
 
     <!-- Vocab chips -->
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-xs text-gray-600">Vocabulary:</span>
-      <span id="voc-yes"   class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">yes</span>
-      <span id="voc-no"    class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">no</span>
-      <span id="voc-help"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">help</span>
-      <span id="voc-water" class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">water</span>
-      <span id="voc-pain"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">pain</span>
-      <span id="voc-stop"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all">stop</span>
+      <span id="voc-yes"   class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300">yes</span>
+      <span id="voc-no"    class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300">no</span>
+      <span id="voc-help"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300">help</span>
+      <span id="voc-water" class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300">water</span>
+      <span id="voc-pain"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300">pain</span>
+      <span id="voc-stop"  class="mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300">stop</span>
     </div>
 
     <!-- Result banner -->
@@ -343,7 +315,7 @@
         <div>
           <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Detected Command</p>
           <div class="flex items-baseline gap-4">
-            <span id="b-word" class="text-6xl font-black uppercase tracking-widest mono" style="text-shadow:0 0 40px rgba(74,222,128,.5)">—</span>
+            <span id="b-word" class="text-6xl font-black uppercase tracking-widest mono">—</span>
             <div>
               <div class="text-xs text-gray-500 mb-0.5">Confidence</div>
               <span id="b-conf" class="text-3xl font-bold text-green-400 mono">—</span>
@@ -351,36 +323,22 @@
           </div>
         </div>
         <div class="text-right space-y-1.5 mt-1">
-          <p class="text-xs text-gray-600 uppercase">Weights</p>
-          <div class="text-xs flex items-center gap-2 justify-end">
-            <span class="text-gray-500">🎤 Audio</span>
-            <span class="mono text-blue-400 font-bold" id="b-aw">—</span>
-          </div>
-          <div class="text-xs flex items-center gap-2 justify-end">
-            <span class="text-gray-500">📷 Video</span>
-            <span class="mono text-purple-400 font-bold" id="b-vw">—</span>
-          </div>
-          <div class="text-xs flex items-center gap-2 justify-end mt-1">
-            <span class="text-gray-500">⏱ Latency</span>
-            <span class="mono text-yellow-400" id="b-lat">—</span>
-          </div>
+          <p class="text-xs text-gray-600 uppercase tracking-wider">Weights</p>
+          <div class="text-xs flex items-center gap-2 justify-end"><span class="text-gray-500">🎤 Audio</span><span class="mono text-blue-400 font-bold" id="b-aw">—</span></div>
+          <div class="text-xs flex items-center gap-2 justify-end"><span class="text-gray-500">📷 Video</span><span class="mono text-purple-400 font-bold" id="b-vw">—</span></div>
+          <div class="text-xs flex items-center gap-2 justify-end mt-1"><span class="text-gray-500">⏱ Latency</span><span class="mono text-yellow-400" id="b-lat">—</span></div>
         </div>
       </div>
     </div>
 
     <!-- 3-col model cards -->
     <div id="cards" class="hidden grid grid-cols-3 gap-3 flex-1">
-
-      <!-- Whisper -->
       <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col">
         <div class="flex items-center gap-2 mb-2">
           <div class="w-7 h-7 rounded-lg bg-blue-950 border border-blue-800 flex items-center justify-center">
             <svg class="w-3.5 h-3.5 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
           </div>
-          <div class="leading-tight">
-            <div class="text-xs font-bold text-white">Whisper CNN</div>
-            <div class="text-xs text-gray-600">Model A</div>
-          </div>
+          <div class="leading-tight"><div class="text-xs font-bold text-white">Whisper CNN</div><div class="text-xs text-gray-600">Model A</div></div>
         </div>
         <div class="bg-blue-950/30 border border-blue-900/30 rounded-lg p-2 text-center mb-2">
           <div class="text-lg font-black text-blue-300 mono uppercase" id="w-word">—</div>
@@ -388,17 +346,12 @@
         </div>
         <div id="w-bars" class="space-y-1 flex-1"></div>
       </div>
-
-      <!-- Lip -->
       <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col">
         <div class="flex items-center gap-2 mb-2">
           <div class="w-7 h-7 rounded-lg bg-purple-950 border border-purple-800 flex items-center justify-center">
             <svg class="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.878v6.244a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
           </div>
-          <div class="leading-tight">
-            <div class="text-xs font-bold text-white">Lip CNN+LSTM</div>
-            <div class="text-xs text-gray-600">Model B</div>
-          </div>
+          <div class="leading-tight"><div class="text-xs font-bold text-white">Lip CNN+LSTM</div><div class="text-xs text-gray-600">Model B</div></div>
         </div>
         <div class="bg-purple-950/30 border border-purple-900/30 rounded-lg p-2 text-center mb-2">
           <div class="text-lg font-black text-purple-300 mono uppercase" id="l-word">—</div>
@@ -406,17 +359,12 @@
         </div>
         <div id="l-bars" class="space-y-1 flex-1"></div>
       </div>
-
-      <!-- Fusion -->
       <div class="bg-gray-900 border-2 border-green-900 rounded-xl p-3 flex flex-col">
         <div class="flex items-center gap-2 mb-2">
           <div class="w-7 h-7 rounded-lg bg-green-950 border border-green-800 flex items-center justify-center">
             <svg class="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h8m-8 6h16"/></svg>
           </div>
-          <div class="leading-tight">
-            <div class="text-xs font-bold text-white">Fusion</div>
-            <div class="text-xs text-gray-600">Dynamic</div>
-          </div>
+          <div class="leading-tight"><div class="text-xs font-bold text-white">Fusion</div><div class="text-xs text-gray-600">Dynamic</div></div>
         </div>
         <div class="bg-green-950/30 border border-green-900/30 rounded-lg p-2 text-center mb-2">
           <div class="text-lg font-black text-green-300 mono uppercase" id="f-word">—</div>
@@ -426,233 +374,346 @@
       </div>
     </div>
 
-    <!-- idle placeholder -->
-    <div id="idle-placeholder" class="flex-1 bg-gray-900 border border-gray-800 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 text-gray-700">
-      <svg class="w-12 h-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z"/></svg>
-      <p class="text-sm font-medium opacity-30">Press REC to start</p>
+    <!-- Idle placeholder -->
+    <div id="idle-ph" class="flex-1 bg-gray-900 border border-gray-800 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 text-gray-700">
+      <svg class="w-12 h-12 opacity-15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z"/></svg>
+      <p class="text-sm font-medium opacity-25">Enable sensors → Press REC</p>
     </div>
   </div>
 
 </main>
 
-<!-- ══════════════════════════ SCRIPTS ═════════════════════════════════ -->
+<!-- ═══════════════════════ JAVASCRIPT ══════════════════════════════ -->
 <script>
+// ── Constants ──────────────────────────────────────────────────────────
 const VOCAB = ['yes','no','help','water','pain','stop'];
-let camStream = null, audioCtx = null, analyser = null, micAnimId = null;
-let isRecording = false, camEnabled = false;
-let lipROI = { x:.3, y:.58, w:.4, h:.18 }; // normalized lip region
-let roiJitter = { x:0, y:0 };
+
+// MediaPipe lip landmark indices (40 points)
+const LIP_IDX = [
+  61,185,40,39,37,0,267,269,270,409,291,
+  375,321,405,314,17,84,181,91,146,
+  78,191,80,81,82,13,312,311,310,415,308,
+  324,318,402,317,14,87,178,88,95
+];
+const LIP_SET = new Set(LIP_IDX);
+
+// MediaPipe face oval connections (to draw outline)
+const FACE_OVAL = [
+  [10,338],[338,297],[297,332],[332,284],[284,251],[251,389],[389,356],[356,454],
+  [454,323],[323,361],[361,288],[288,397],[397,365],[365,379],[379,378],[378,400],
+  [400,377],[377,152],[152,148],[148,176],[176,149],[149,150],[150,136],[136,172],
+  [172,58],[58,132],[132,93],[93,234],[234,127],[127,162],[162,21],[21,54],
+  [54,103],[103,67],[67,109],[109,10]
+];
+
+// Left & right eye contours
+const LEFT_EYE  = [[33,7],[7,163],[163,144],[144,145],[145,153],[153,154],[154,155],[155,133],[33,246],[246,161],[161,160],[160,159],[159,158],[158,157],[157,173],[173,133]];
+const RIGHT_EYE = [[362,382],[382,381],[381,380],[380,374],[374,373],[373,390],[390,249],[249,263],[362,398],[398,384],[384,385],[385,386],[386,387],[387,388],[388,466],[466,263]];
+
+// Lip connections
+const LIPS_CONN = [
+  [61,146],[146,91],[91,181],[181,84],[84,17],[17,314],[314,405],[405,321],[321,375],[375,291],
+  [61,185],[185,40],[40,39],[39,37],[37,0],[0,267],[267,269],[269,270],[270,409],[409,291],
+  [78,95],[95,88],[88,178],[178,87],[87,14],[14,317],[317,402],[402,318],[318,324],[324,308],
+  [78,191],[191,80],[80,81],[81,82],[82,13],[13,312],[312,311],[311,310],[310,415],[415,308]
+];
+
+// ── State ──────────────────────────────────────────────────────────────
+let faceMesh = null, mpReady = false;
+let lastLandmarks = null;
+let isRecording = false;
+let audioCtx = null, analyser = null;
+let lastFrameTime = 0;
 const histArr = [];
 
-// ── Sensor enable ────────────────────────────────────────────────────
+// ── Enable sensors ─────────────────────────────────────────────────────
 async function enableSensors() {
-  const btn = document.getElementById('enable-btn');
-  btn.textContent = 'Connecting...'; btn.disabled = true;
+  const loader  = document.getElementById('mp-loader');
+  const mpStat  = document.getElementById('mp-status');
+  const btn     = loader.querySelector('button');
+  btn.disabled  = true;
+  btn.textContent = 'Connecting…';
+
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video:{ width:640, height:480, facingMode:'user' }, audio:true });
+    // ① Get camera + mic
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width:640, height:480, facingMode:'user' },
+      audio: true
+    });
 
     // Camera
     const vid = document.getElementById('cam-video');
-    vid.srcObject = camStream;
-    document.getElementById('cam-no-perm').style.display = 'none';
-    camEnabled = true;
+    vid.srcObject = stream;
 
-    // Canvas overlay loop
-    const canvas = document.getElementById('cam-canvas');
-    vid.onloadedmetadata = () => {
-      canvas.width  = vid.videoWidth  || 640;
-      canvas.height = vid.videoHeight || 480;
-      startOverlayLoop();
-    };
+    // Status dots
+    setDot('cam', true); setDot('mic', true);
 
-    // Mic
+    // Mic visualiser
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = audioCtx.createMediaStreamSource(camStream);
+    const src = audioCtx.createMediaStreamSource(stream);
     analyser  = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 512;
     src.connect(analyser);
     startMicViz();
 
-    // Status dots
-    document.getElementById('dot-cam').className = 'w-2 h-2 rounded-full bg-green-400';
-    document.getElementById('lbl-cam').className  = 'text-gray-400';
-    document.getElementById('lbl-cam').innerHTML  = 'Camera: <span class="text-green-400 font-semibold">Active</span>';
-    document.getElementById('dot-mic').className  = 'w-2 h-2 rounded-full bg-green-400';
-    document.getElementById('lbl-mic').className  = 'text-gray-400';
-    document.getElementById('lbl-mic').innerHTML  = 'Microphone: <span class="text-green-400 font-semibold">Active</span>';
+    // ② Setup canvas once video metadata known
+    vid.onloadedmetadata = () => {
+      const c = document.getElementById('cam-canvas');
+      c.width  = vid.videoWidth  || 640;
+      c.height = vid.videoHeight || 480;
+    };
 
-    btn.textContent = '✓ Sensors Active'; btn.disabled = true;
-    btn.className   = btn.className.replace('bg-blue-600 hover:bg-blue-500','bg-green-700');
+    // ③ Init MediaPipe FaceMesh
+    mpStat.textContent = 'Loading FaceMesh model…';
+
+    faceMesh = new FaceMesh({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+    });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,   // 468 landmarks
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence:  0.5
+    });
+    faceMesh.onResults(onFaceResults);
+
+    await faceMesh.initialize();    // downloads ~8 MB model
+    mpReady = true;
+    setDot('mp', true);
+
+    // Hide loader
+    loader.style.display = 'none';
+
+    // ④ Start frame loop
+    requestAnimationFrame(frameLoop);
+
   } catch(e) {
-    btn.textContent = 'Permission Denied — retry'; btn.disabled = false;
-    console.warn(e);
+    console.warn('Sensor init error:', e);
+    mpStat.textContent = 'Permission denied — try again';
+    btn.disabled = false;
+    btn.textContent = 'Enable Camera & Mic';
   }
 }
 
-// ── Camera overlay ───────────────────────────────────────────────────
-function startOverlayLoop() {
+// ── Frame loop: feed video → MediaPipe ─────────────────────────────────
+async function frameLoop(ts) {
+  const vid = document.getElementById('cam-video');
+  if (mpReady && vid.readyState >= 2 && ts - lastFrameTime >= 33) {
+    lastFrameTime = ts;
+    await faceMesh.send({ image: vid });
+  }
+  requestAnimationFrame(frameLoop);
+}
+
+// ── MediaPipe callback ──────────────────────────────────────────────────
+function onFaceResults(results) {
+  lastLandmarks = results.multiFaceLandmarks?.[0] ?? null;
+  drawFace();
+}
+
+// ── Canvas drawing ──────────────────────────────────────────────────────
+function drawFace() {
   const canvas = document.getElementById('cam-canvas');
-  const ctx    = canvas.getContext('2d');
+  if (!canvas.width) return;
+  const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
 
-  function drawFrame() {
-    ctx.clearRect(0,0,W,H);
-
-    // Subtle jitter for realism
-    roiJitter.x += (Math.random()-.5) * .003;
-    roiJitter.y += (Math.random()-.5) * .002;
-    roiJitter.x  = Math.max(-.015, Math.min(.015, roiJitter.x));
-    roiJitter.y  = Math.max(-.01,  Math.min(.01,  roiJitter.y));
-
-    const rx = (lipROI.x + roiJitter.x) * W;
-    const ry = (lipROI.y + roiJitter.y) * H;
-    const rw = lipROI.w * W;
-    const rh = lipROI.h * H;
-
-    // Face bounding box (dim)
-    ctx.strokeStyle = isRecording ? 'rgba(59,130,246,.3)' : 'rgba(59,130,246,.15)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4,4]);
-    ctx.strokeRect(W*.12, H*.04, W*.76, H*.88);
-    ctx.setLineDash([]);
-
-    // Lip ROI box
-    const roiColor = isRecording ? '#ef4444' : '#10b981';
-    ctx.strokeStyle = roiColor;
-    ctx.lineWidth   = isRecording ? 2.5 : 1.8;
-    ctx.strokeRect(rx, ry, rw, rh);
-
-    // Corner ticks
-    const tk = 10;
-    ctx.lineWidth = isRecording ? 3 : 2;
-    [[rx,ry,1,1],[rx+rw,ry,-1,1],[rx,ry+rh,1,-1],[rx+rw,ry+rh,-1,-1]].forEach(([cx,cy,sx,sy])=>{
-      ctx.beginPath(); ctx.moveTo(cx+sx*tk,cy); ctx.lineTo(cx,cy); ctx.lineTo(cx,cy+sy*tk);
-      ctx.stroke();
-    });
-
-    // ROI label
-    ctx.fillStyle = isRecording ? '#ef4444' : '#10b981';
-    ctx.font = '10px JetBrains Mono, monospace';
-    ctx.fillText('LIP ROI', rx+3, ry-4);
-
-    // MediaPipe landmark dots (simulated)
-    const dots = simulateLandmarks(rx, ry, rw, rh);
-    dots.forEach(([dx,dy])=>{
-      ctx.fillStyle = isRecording ? 'rgba(239,68,68,.85)' : 'rgba(74,222,128,.75)';
-      ctx.beginPath(); ctx.arc(dx,dy,2.5,0,Math.PI*2); ctx.fill();
-    });
-
-    // Frame counter badge
-    const t = Date.now();
-    ctx.fillStyle = 'rgba(0,0,0,.55)';
-    ctx.fillRect(W-84,4,80,18);
-    ctx.fillStyle = '#60a5fa';
-    ctx.font = '9px JetBrains Mono, monospace';
-    ctx.fillText(`FRAME ${Math.floor(t/33)%9999}`, W-80, 16);
-
-    // Recording indicator
-    if (isRecording) {
-      ctx.fillStyle = `rgba(239,68,68,${.6 + .4*Math.sin(t/200)})`;
-      ctx.beginPath(); ctx.arc(12,12,6,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = 'white'; ctx.font = '9px Inter, sans-serif';
-      ctx.fillText('REC', 22, 16);
-    }
-
-    requestAnimationFrame(drawFrame);
+  if (!lastLandmarks) {
+    drawNoFace(ctx, W, H);
+    return;
   }
-  requestAnimationFrame(drawFrame);
-}
 
-function simulateLandmarks(rx,ry,rw,rh) {
-  // 12 lip landmark positions (normalized within ROI)
-  const pts = [
-    [.15,.35],[.3,.15],[.5,.1],[.7,.15],[.85,.35],
-    [.85,.65],[.7,.85],[.5,.9],[.3,.85],[.15,.65],
-    [.5,.3],[.5,.7]
-  ];
-  return pts.map(([px,py])=>[rx+px*rw, ry+py*rh]);
-}
+  const lm = lastLandmarks;
+  // Mirror X because video is flipped with CSS scaleX(-1)
+  const px = i => (1 - lm[i].x) * W;
+  const py = i => lm[i].y * H;
 
-// ── Mic waveform ─────────────────────────────────────────────────────
-function startMicViz() {
-  const canvas = document.getElementById('mic-canvas');
-  const ctx    = canvas.getContext('2d');
-  canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-  const W = canvas.width, H = canvas.height;
-  const bufLen = analyser.frequencyBinCount;
-  const dataArr = new Uint8Array(bufLen);
-
-  function draw() {
-    micAnimId = requestAnimationFrame(draw);
-    analyser.getByteTimeDomainData(dataArr);
-
-    ctx.clearRect(0,0,W,H);
-    ctx.fillStyle = '#050810';
-    ctx.fillRect(0,0,W,H);
-
-    // Gradient line
-    const grad = ctx.createLinearGradient(0,0,W,0);
-    grad.addColorStop(0,'#1d4ed8'); grad.addColorStop(.5,'#3b82f6'); grad.addColorStop(1,'#8b5cf6');
-    ctx.strokeStyle = grad; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
-
+  // ── 1. Face mesh tesselation (very faint) ─────────────────────────
+  // Use built-in FACEMESH_TESSELATION if available (exported by face_mesh.js)
+  if (typeof FACEMESH_TESSELATION !== 'undefined') {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(59,130,246,0.055)';
+    ctx.lineWidth   = 0.5;
     ctx.beginPath();
-    const sliceW = W / bufLen;
-    let x = 0;
-    for (let i=0; i<bufLen; i++) {
-      const v = dataArr[i]/128, y = v * H/2;
-      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-      x += sliceW;
+    for (const [a, b] of FACEMESH_TESSELATION) {
+      if (a < lm.length && b < lm.length) {
+        ctx.moveTo(px(a), py(a));
+        ctx.lineTo(px(b), py(b));
+      }
     }
     ctx.stroke();
+    ctx.restore();
+  }
 
-    // dB level
-    const rms = Math.sqrt(dataArr.reduce((s,v)=>s+(v-128)**2,0)/bufLen);
+  // ── 2. Face oval outline ──────────────────────────────────────────
+  drawConns(ctx, lm, FACE_OVAL,  'rgba(59,130,246,0.28)', 1,   W, H);
+
+  // ── 3. Eye contours ───────────────────────────────────────────────
+  drawConns(ctx, lm, LEFT_EYE,   'rgba(99,179,237,0.45)', 1.2, W, H);
+  drawConns(ctx, lm, RIGHT_EYE,  'rgba(99,179,237,0.45)', 1.2, W, H);
+
+  // ── 4. Lip contour lines ──────────────────────────────────────────
+  drawConns(ctx, lm, LIPS_CONN,
+    isRecording ? 'rgba(239,68,68,0.7)' : 'rgba(0,220,255,0.6)', 1.5, W, H);
+
+  // ── 5. All 468 landmark dots ──────────────────────────────────────
+  const total = Math.min(468, lm.length);
+  for (let i = 0; i < total; i++) {
+    const isLip = LIP_SET.has(i);
+    ctx.fillStyle = isLip
+      ? (isRecording ? 'rgba(255,80,80,0.95)' : 'rgba(0,220,255,0.95)')
+      : 'rgba(96,165,250,0.72)';
+    ctx.beginPath();
+    ctx.arc(px(i), py(i), isLip ? 2.8 : 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ── 6. Lip ROI bounding box (from actual landmark positions) ──────
+  let minX=W, minY=H, maxX=0, maxY=0;
+  for (const i of LIP_IDX) {
+    const x = px(i), y = py(i);
+    if (x < minX) minX=x; if (x > maxX) maxX=x;
+    if (y < minY) minY=y; if (y > maxY) maxY=y;
+  }
+  const pad = 10;
+  const bx = minX-pad, by = minY-pad, bw = maxX-minX+pad*2, bh = maxY-minY+pad*2;
+
+  const roiCol = isRecording ? '#ef4444' : '#10b981';
+  ctx.strokeStyle = roiCol;
+  ctx.lineWidth   = isRecording ? 2.5 : 2;
+  ctx.strokeRect(bx, by, bw, bh);
+
+  // Corner ticks on ROI
+  const tk = 10;
+  ctx.lineWidth = 2.5;
+  [[bx,by,1,1],[bx+bw,by,-1,1],[bx,by+bh,1,-1],[bx+bw,by+bh,-1,-1]].forEach(([cx,cy,sx,sy])=>{
+    ctx.beginPath(); ctx.moveTo(cx+sx*tk,cy); ctx.lineTo(cx,cy); ctx.lineTo(cx,cy+sy*tk); ctx.stroke();
+  });
+  // ROI label
+  ctx.fillStyle = roiCol; ctx.font = 'bold 10px JetBrains Mono, monospace';
+  ctx.fillText('LIP ROI', bx+2, by-5);
+
+  // ── 7. Landmark count badge ───────────────────────────────────────
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(4, 4, 152, 18);
+  ctx.fillStyle = '#60a5fa';
+  ctx.font = '9px JetBrains Mono, monospace';
+  ctx.fillText(`${total} LANDMARKS  FACE DETECTED`, 8, 16);
+
+  // ── 8. REC indicator ─────────────────────────────────────────────
+  if (isRecording) {
+    const alpha = 0.6 + 0.4 * Math.sin(Date.now() / 180);
+    ctx.fillStyle = `rgba(239,68,68,${alpha})`;
+    ctx.beginPath(); ctx.arc(12, 30, 6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '9px Inter,sans-serif';
+    ctx.fillText('REC', 22, 34);
+  }
+}
+
+function drawConns(ctx, lm, conns, color, lw, W, H) {
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath();
+  for (const [a,b] of conns) {
+    if (a >= lm.length || b >= lm.length) continue;
+    ctx.moveTo((1-lm[a].x)*W, lm[a].y*H);
+    ctx.lineTo((1-lm[b].x)*W, lm[b].y*H);
+  }
+  ctx.stroke();
+}
+
+function drawNoFace(ctx, W, H) {
+  ctx.strokeStyle='rgba(59,130,246,0.2)'; ctx.lineWidth=1;
+  ctx.setLineDash([4,4]); ctx.strokeRect(W*.12,H*.04,W*.76,H*.88); ctx.setLineDash([]);
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(W/2-72,H/2-11,144,22);
+  ctx.fillStyle='rgba(239,68,68,0.75)'; ctx.font='11px Inter,sans-serif';
+  ctx.textAlign='center'; ctx.fillText('● Scanning for face…', W/2, H/2+5); ctx.textAlign='left';
+}
+
+// ── Mic waveform ───────────────────────────────────────────────────────
+function startMicViz() {
+  const canvas = document.getElementById('mic-canvas');
+  canvas.width = canvas.offsetWidth * (window.devicePixelRatio||1);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+
+  function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#050810'; ctx.fillRect(0,0,W,H);
+
+    const g = ctx.createLinearGradient(0,0,W,0);
+    g.addColorStop(0,'#1d4ed8'); g.addColorStop(.5,'#3b82f6'); g.addColorStop(1,'#8b5cf6');
+    ctx.strokeStyle=g; ctx.lineWidth=1.8; ctx.lineJoin='round';
+    ctx.beginPath();
+    const sw = W / buf.length;
+    buf.forEach((v,i) => {
+      const y = (v/128) * H/2;
+      i===0 ? ctx.moveTo(0,y) : ctx.lineTo(i*sw, y);
+    });
+    ctx.stroke();
+
+    const rms = Math.sqrt(buf.reduce((s,v)=>s+(v-128)**2,0)/buf.length);
     const db  = rms > 0 ? Math.round(20*Math.log10(rms/128)) : -60;
     document.getElementById('db-label').textContent = `${Math.max(-60,db)} dB`;
+    document.getElementById('mfcc-status').textContent = rms > 5 ? 'Signal detected' : 'MFCC ready';
   }
   draw();
 }
 
-// ── Sliders ──────────────────────────────────────────────────────────
-document.getElementById('noise-slider').addEventListener('input', e=>{
-  document.getElementById('noise-val').textContent = e.target.value+'%';
-  updateWeights();
-});
-document.getElementById('light-slider').addEventListener('input', e=>{
-  document.getElementById('light-val').textContent = e.target.value+'%';
-  updateWeights();
-});
-function updateWeights(){
-  const n  = document.getElementById('noise-slider').value/100;
-  const l  = document.getElementById('light-slider').value/100;
-  const aw = Math.max(.05,1-n), vw = Math.max(.05,.3+l*.7), t = aw+vw;
-  const ap = Math.round(aw/t*100), vp = Math.round(vw/t*100);
-  document.getElementById('aw-pct').textContent = ap+'%';
-  document.getElementById('vw-pct').textContent = vp+'%';
-  document.getElementById('aw-bar').style.width  = ap+'%';
-  document.getElementById('vw-bar').style.width  = vp+'%';
+// ── Status dots ────────────────────────────────────────────────────────
+function setDot(id, on) {
+  const dot  = document.getElementById(`dot-${id}`);
+  const lbl  = document.getElementById(`lbl-${id}`);
+  const names = { cam:'Camera', mic:'Microphone', mp:'MediaPipe' };
+  if (on) {
+    dot.className = 'w-2 h-2 rounded-full bg-green-400 transition-colors';
+    lbl.innerHTML = `${names[id]}: <span class="text-green-400 font-semibold">Active</span>`;
+  }
 }
 
-// ── Pipeline helpers ─────────────────────────────────────────────────
-function litNode(id, cls){
+// ── Sliders ────────────────────────────────────────────────────────────
+document.getElementById('noise-slider').addEventListener('input', e => {
+  document.getElementById('noise-val').textContent = e.target.value+'%'; updateWeights();
+});
+document.getElementById('light-slider').addEventListener('input', e => {
+  document.getElementById('light-val').textContent = e.target.value+'%'; updateWeights();
+});
+function updateWeights() {
+  const n  = document.getElementById('noise-slider').value/100;
+  const l  = document.getElementById('light-slider').value/100;
+  const aw = Math.max(.05,1-n), vw = Math.max(.05,.3+l*.7), t=aw+vw;
+  const ap = Math.round(aw/t*100), vp = Math.round(vw/t*100);
+  document.getElementById('aw-pct').textContent=ap+'%';
+  document.getElementById('vw-pct').textContent=vp+'%';
+  document.getElementById('aw-bar').style.width=ap+'%';
+  document.getElementById('vw-bar').style.width=vp+'%';
+}
+
+// ── Pipeline node helpers ──────────────────────────────────────────────
+function litNode(id, cls) {
   const el = document.getElementById(id);
   el.classList.remove('lit-blue','lit-purple','lit-green');
-  if(cls) el.classList.add(cls);
-  el.querySelectorAll('svg,span').forEach(c=>{
+  if (cls) el.classList.add(cls);
+  el.querySelectorAll('svg,span').forEach(c => {
     c.classList.remove('text-gray-600','text-blue-400','text-purple-400','text-green-400');
     c.classList.add(cls==='lit-blue'?'text-blue-400':cls==='lit-purple'?'text-purple-400':cls==='lit-green'?'text-green-400':'text-gray-600');
   });
 }
-function resetNodes(){ ['pn-mic','pn-mfcc','pn-cnna','pn-cam','pn-roi','pn-lstm','pn-fusion','pn-out'].forEach(id=>litNode(id,null)); }
+function resetNodes() {
+  ['pn-mic','pn-mfcc','pn-cnna','pn-cam2','pn-roi','pn-lstm','pn-fusion','pn-out'].forEach(id => litNode(id, null));
+}
 
-function setStep(n,state){
+function setStep(n, state) {
   const el=document.getElementById(`s${n}`), dot=document.getElementById(`d${n}`), lbl=el.querySelector('span');
   el.classList.remove('step-idle','step-active','step-done');
-  if(state==='active'){
+  if (state==='active') {
     el.classList.add('step-active');
     dot.innerHTML='<div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>';
     lbl.className='text-blue-300';
-  } else if(state==='done'){
+  } else if (state==='done') {
     el.classList.add('step-done');
     dot.innerHTML=`<svg class="w-3 h-3 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>`;
     lbl.className='text-green-400';
@@ -662,12 +723,12 @@ function setStep(n,state){
     lbl.className='text-gray-600';
   }
 }
-function resetSteps(){ [1,2,3,4].forEach(n=>setStep(n,'idle')); }
+function resetSteps() { [1,2,3,4].forEach(n => setStep(n,'idle')); }
 
-// ── Confidence bars ──────────────────────────────────────────────────
-function renderBars(id, scores, col){
-  const sorted = [...VOCAB].sort((a,b)=>scores[b]-scores[a]);
-  document.getElementById(id).innerHTML = sorted.map(w=>`
+// ── Confidence bars ────────────────────────────────────────────────────
+function renderBars(id, scores, col) {
+  const sorted = [...VOCAB].sort((a,b) => scores[b]-scores[a]);
+  document.getElementById(id).innerHTML = sorted.map(w => `
     <div class="flex items-center gap-1.5 text-xs">
       <span class="text-gray-600 w-9 text-right capitalize">${w}</span>
       <div class="flex-1 bg-gray-800 rounded-full h-2 overflow-hidden">
@@ -677,82 +738,64 @@ function renderBars(id, scores, col){
     </div>`).join('');
 }
 
-// ── Vocab chip highlight ─────────────────────────────────────────────
-function highlightVocab(word){
-  VOCAB.forEach(w=>{
-    const el=document.getElementById(`voc-${w}`);
-    if(w===word){
-      el.className='mono text-xs px-2.5 py-0.5 rounded-full border border-green-600 bg-green-900/30 text-green-400 transition-all font-bold';
-    } else {
-      el.className='mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-600 transition-all';
-    }
+function hlVocab(word) {
+  VOCAB.forEach(w => {
+    document.getElementById(`voc-${w}`).className = w===word
+      ? 'mono text-xs px-2.5 py-0.5 rounded-full border border-green-600 bg-green-900/30 text-green-400 transition-all duration-300 font-bold'
+      : 'mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-600 transition-all duration-300';
   });
 }
-function resetVocab(){
-  VOCAB.forEach(w=>{ document.getElementById(`voc-${w}`).className='mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all'; });
+function resetVocab() {
+  VOCAB.forEach(w => document.getElementById(`voc-${w}`).className='mono text-xs px-2.5 py-0.5 rounded-full border border-gray-800 text-gray-500 transition-all duration-300');
 }
 
-// ── Dirichlet simulation ─────────────────────────────────────────────
-function dirichlet(n, alpha=1.8){
-  const s = Array.from({length:n}, ()=>-Math.log(Math.random()+1e-9)*alpha);
-  const t = s.reduce((a,b)=>a+b,0);
-  return s.map(v=>v/t);
-}
-
-// ── Main prediction ──────────────────────────────────────────────────
-async function startPrediction(){
-  if(isRecording) return;
+// ── Main prediction ────────────────────────────────────────────────────
+async function startPrediction() {
+  if (isRecording) return;
   isRecording = true;
 
   const btn = document.getElementById('rec-btn');
-  btn.classList.add('ring-anim','opacity-80');
-  document.getElementById('rec-hint').textContent = '🔴 Recording...';
+  btn.classList.add('ring-anim','opacity-75');
+  document.getElementById('rec-hint').textContent = '🔴 Recording…';
   document.getElementById('banner').classList.add('hidden');
   document.getElementById('cards').classList.add('hidden');
-  document.getElementById('idle-placeholder').classList.remove('hidden');
+  document.getElementById('idle-ph').classList.remove('hidden');
   resetSteps(); resetNodes(); resetVocab();
 
-  // Step 1
-  setStep(1,'active'); litNode('pn-mic','lit-blue'); litNode('pn-cam','lit-purple');
+  setStep(1,'active'); litNode('pn-mic','lit-blue'); litNode('pn-cam2','lit-purple');
   await sleep(800);
   setStep(1,'done');
 
-  // Step 2
   setStep(2,'active'); litNode('pn-mfcc','lit-blue'); litNode('pn-roi','lit-purple');
-  document.getElementById('rec-hint').textContent = '⚙️ Extracting ROI + MFCC...';
+  document.getElementById('rec-hint').textContent='⚙️ ROI crop + MFCC extract…';
   await sleep(600);
   setStep(2,'done');
 
-  // Step 3 + API call
   setStep(3,'active'); litNode('pn-cnna','lit-blue'); litNode('pn-lstm','lit-purple');
-  document.getElementById('rec-hint').textContent = '🧠 CNN + LSTM inference...';
+  document.getElementById('rec-hint').textContent='🧠 CNN + LSTM inference…';
 
-  const noise   = document.getElementById('noise-slider').value/100;
+  const noise    = document.getElementById('noise-slider').value/100;
   const lighting = document.getElementById('light-slider').value/100;
-  const resp = await fetch('/predict',{
+  const resp = await fetch('/predict', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({noise_level:noise, lighting_level:lighting})
+    body: JSON.stringify({ noise_level:noise, lighting_level:lighting })
   });
   const data = await resp.json();
   await sleep(500);
   setStep(3,'done');
 
-  // Step 4
   setStep(4,'active'); litNode('pn-fusion','lit-green');
-  document.getElementById('rec-hint').textContent = '🔀 Dynamic fusion...';
+  document.getElementById('rec-hint').textContent='🔀 Dynamic fusion…';
   await sleep(400);
   setStep(4,'done'); litNode('pn-out','lit-green');
 
-  // Show results
-  document.getElementById('idle-placeholder').classList.add('hidden');
+  // Results
+  document.getElementById('idle-ph').classList.add('hidden');
 
-  // Banner
+  const conf  = data.fusion.confidence;
+  const color = conf>=55 ? '#4ade80' : conf>=35 ? '#facc15' : '#f87171';
   const banner = document.getElementById('banner');
   banner.classList.remove('hidden');
-  banner.style.animation='none'; void banner.offsetWidth; banner.style.animation='';
-
-  const conf = data.fusion.confidence;
-  const color = conf>=55 ? '#4ade80' : conf>=35 ? '#facc15' : '#f87171';
   document.getElementById('b-word').textContent = data.fusion.word.toUpperCase();
   document.getElementById('b-word').style.color = color;
   document.getElementById('b-conf').textContent = conf+'%';
@@ -760,33 +803,30 @@ async function startPrediction(){
   document.getElementById('b-vw').textContent   = data.fusion.video_weight+'%';
   document.getElementById('b-lat').textContent  = data.latency_ms+'ms';
 
-  // Cards
-  const cards = document.getElementById('cards');
-  cards.classList.remove('hidden');
+  document.getElementById('cards').classList.remove('hidden');
   document.getElementById('w-word').textContent = data.whisper.word.toUpperCase();
   document.getElementById('w-conf').textContent = data.whisper.confidence+'%';
   document.getElementById('l-word').textContent = data.lip.word.toUpperCase();
   document.getElementById('l-conf').textContent = data.lip.confidence+'%';
   document.getElementById('f-word').textContent = data.fusion.word.toUpperCase();
   document.getElementById('f-conf').textContent = data.fusion.confidence+'%';
+  renderBars('w-bars', data.whisper.scores, 'bg-blue-500');
+  renderBars('l-bars', data.lip.scores,     'bg-purple-500');
+  renderBars('f-bars', data.fusion.scores,  'bg-green-500');
 
-  renderBars('w-bars', data.whisper.scores,'bg-blue-500');
-  renderBars('l-bars', data.lip.scores,   'bg-purple-500');
-  renderBars('f-bars', data.fusion.scores,'bg-green-500');
+  hlVocab(data.fusion.word);
+  addHist(data.fusion.word, conf, data.latency_ms);
 
-  highlightVocab(data.fusion.word);
-  addHist(data.fusion.word, data.fusion.confidence, data.latency_ms);
-
-  document.getElementById('rec-hint').textContent = 'Press to capture again';
-  btn.classList.remove('ring-anim','opacity-80');
+  document.getElementById('rec-hint').textContent='Press to capture again';
+  btn.classList.remove('ring-anim','opacity-75');
   isRecording = false;
 }
 
-// ── History ──────────────────────────────────────────────────────────
-function addHist(word, conf, lat){
-  histArr.unshift({word, conf, lat, time:new Date().toLocaleTimeString()});
-  if(histArr.length>8) histArr.pop();
-  document.getElementById('hist').innerHTML = histArr.map(h=>`
+// ── History ────────────────────────────────────────────────────────────
+function addHist(word, conf, lat) {
+  histArr.unshift({ word, conf, lat, time: new Date().toLocaleTimeString() });
+  if (histArr.length > 8) histArr.pop();
+  document.getElementById('hist').innerHTML = histArr.map(h => `
     <div class="flex items-center justify-between py-1.5 px-2 rounded-lg bg-gray-800/50 text-xs">
       <span class="font-bold uppercase text-white mono w-12">${h.word}</span>
       <span class="text-green-400 mono">${h.conf}%</span>
@@ -794,12 +834,12 @@ function addHist(word, conf, lat){
       <span class="text-gray-600">${h.time}</span>
     </div>`).join('');
 }
-function clearHist(){
-  histArr.length=0;
-  document.getElementById('hist').innerHTML='<p class="text-xs text-gray-700 italic text-center py-3">No predictions yet</p>';
+function clearHist() {
+  histArr.length = 0;
+  document.getElementById('hist').innerHTML = '<p class="text-xs text-gray-700 italic text-center py-3">No predictions yet</p>';
 }
 
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 updateWeights();
 </script>
 </body>
